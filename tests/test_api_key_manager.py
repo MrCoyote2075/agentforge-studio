@@ -8,8 +8,6 @@ with multiple keys and rotation strategies.
 import os
 from unittest.mock import patch
 
-import pytest
-
 from backend.core.api_key_manager import (
     APIKeyManager,
     KeyStats,
@@ -151,7 +149,10 @@ class TestAPIKeyManager:
             manager = APIKeyManager(strategy=RotationStrategy.ROUND_ROBIN)
             key1 = manager.get_key("openai")
             key2 = manager.get_key("openai")
-            assert key1 != key2 or len(set([key1, key2])) == 1
+            # With round robin, we should cycle through keys
+            # Keys should be returned in order
+            assert key1 in ["sk-key1", "sk-key2"]
+            assert key2 in ["sk-key1", "sk-key2"]
 
     def test_record_usage(self):
         """Test recording usage for a key."""

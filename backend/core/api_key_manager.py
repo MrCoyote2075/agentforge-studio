@@ -9,7 +9,7 @@ import logging
 import os
 import random
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any
 
@@ -52,9 +52,6 @@ class KeyStats:
         """Mark this key as temporarily unavailable."""
         self.is_available = False
         cooldown = datetime.utcnow()
-        # Add cooldown_seconds to cooldown time
-        from datetime import timedelta
-
         self.cooldown_until = cooldown + timedelta(seconds=cooldown_seconds)
 
     def check_availability(self) -> bool:
@@ -258,13 +255,14 @@ class APIKeyManager:
             return
 
         provider_keys = self._providers[provider]
-        for key_id, stats in provider_keys.stats.items():
-            if key in provider_keys.keys:
-                key_index = provider_keys.keys.index(key)
-                # Get the key_id at the same position
-                key_id = list(provider_keys.stats.keys())[key_index]
-                provider_keys.stats[key_id].record_usage()
-                break
+        if key not in provider_keys.keys:
+            return
+
+        key_index = provider_keys.keys.index(key)
+        stats_keys = list(provider_keys.stats.keys())
+        if key_index < len(stats_keys):
+            target_key_id = stats_keys[key_index]
+            provider_keys.stats[target_key_id].record_usage()
 
     def record_error(
         self,
@@ -287,20 +285,22 @@ class APIKeyManager:
             return
 
         provider_keys = self._providers[provider]
-        for key_id in list(provider_keys.stats.keys()):
-            if key in provider_keys.keys:
-                key_index = provider_keys.keys.index(key)
-                key_id = list(provider_keys.stats.keys())[key_index]
-                stats = provider_keys.stats[key_id]
-                stats.record_error(is_rate_limit)
-                if mark_unavailable:
-                    stats.mark_unavailable(self._cooldown_seconds)
-                self.logger.warning(
-                    f"Recorded error for {provider} key {key_id}: "
-                    f"total errors={stats.error_count}, "
-                    f"rate limits={stats.rate_limit_count}"
-                )
-                break
+        if key not in provider_keys.keys:
+            return
+
+        key_index = provider_keys.keys.index(key)
+        stats_keys = list(provider_keys.stats.keys())
+        if key_index < len(stats_keys):
+            target_key_id = stats_keys[key_index]
+            stats = provider_keys.stats[target_key_id]
+            stats.record_error(is_rate_limit)
+            if mark_unavailable:
+                stats.mark_unavailable(self._cooldown_seconds)
+            self.logger.warning(
+                f"Recorded error for {provider} key {target_key_id}: "
+                f"total errors={stats.error_count}, "
+                f"rate limits={stats.rate_limit_count}"
+            )
 
     def get_next_available_key(self, provider: str, failed_key: str) -> str | None:
         """

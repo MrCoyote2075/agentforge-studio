@@ -5,14 +5,11 @@ These tests verify that the new agents work correctly,
 using mocks to avoid actual AI API calls during testing.
 """
 
-from unittest.mock import AsyncMock, patch
-
 import pytest
 
 from backend.agents.accessibility_agent import (
     AccessibilityAgent,
     AccessibilityIssue,
-    WCAGLevel,
 )
 from backend.agents.analytics_agent import AnalyticsAgent
 from backend.agents.base_agent import AgentState
