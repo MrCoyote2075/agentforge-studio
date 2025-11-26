@@ -148,6 +148,9 @@ workspaces/*
 !workspaces/.gitkeep
 outputs/*
 !outputs/.gitkeep
+backend/data/*
+!backend/data/.gitkeep
+data/
 
 # OS
 .DS_Store

@@ -5,6 +5,18 @@ This package contains Pydantic models for data validation
 and serialization throughout the application.
 """
 
+from backend.models.memory import (
+    AgentContext,
+    AgentNote,
+    BestPractice,
+    ClientPreference,
+    Decision,
+    ErrorRecord,
+    Importance,
+    MistakeRecord,
+    Pattern,
+    TaskRecord,
+)
 from backend.models.messages import (
     AgentInfo,
     AgentStatusType,
@@ -76,4 +88,15 @@ __all__ = [
     "GeneratedFile",
     "WorkflowProject",
     "ProjectSummary",
+    # memory.py models
+    "Importance",
+    "ClientPreference",
+    "TaskRecord",
+    "ErrorRecord",
+    "AgentNote",
+    "Decision",
+    "Pattern",
+    "BestPractice",
+    "MistakeRecord",
+    "AgentContext",
 ]

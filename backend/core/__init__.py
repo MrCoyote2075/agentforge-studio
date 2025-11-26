@@ -16,6 +16,12 @@ from backend.core.file_lock_manager import (
     LockAcquisitionError,
 )
 from backend.core.git_manager import GitManager
+from backend.core.memory import (
+    ApplicationMemory,
+    ContextBuilder,
+    MemoryManager,
+    ProjectMemory,
+)
 from backend.core.message_bus import MessageBus
 from backend.core.orchestrator import Orchestrator
 from backend.core.preview_server import PreviewServer
@@ -53,6 +59,11 @@ __all__ = [
     "TaskDispatcher",
     "DispatchedTask",
     "DispatchedTaskState",
+    # Memory
+    "ProjectMemory",
+    "ApplicationMemory",
+    "MemoryManager",
+    "ContextBuilder",
     # Other
     "WorkspaceManager",
     "GitManager",

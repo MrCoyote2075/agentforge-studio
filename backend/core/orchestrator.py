@@ -11,6 +11,7 @@ from typing import Any
 
 from backend.core.agent_registry import AgentRegistry
 from backend.core.event_emitter import EventEmitter
+from backend.core.memory.memory_manager import MemoryManager
 from backend.core.message_bus import MessageBus
 from backend.core.project_manager import ProjectManager
 from backend.core.task_dispatcher import TaskDispatcher
@@ -46,6 +47,7 @@ class Orchestrator:
         event_emitter: Emits events for UI updates.
         agent_registry: Tracks agent status and capabilities.
         task_queue: Manages task queueing.
+        memory_manager: Manages agent memory systems.
         logger: Logger instance.
 
     Example:
@@ -60,6 +62,7 @@ class Orchestrator:
         event_emitter: EventEmitter | None = None,
         agent_registry: AgentRegistry | None = None,
         task_queue: AsyncTaskQueue | None = None,
+        memory_manager: MemoryManager | None = None,
     ) -> None:
         """
         Initialize the Orchestrator.
@@ -69,11 +72,13 @@ class Orchestrator:
             event_emitter: Optional event emitter instance.
             agent_registry: Optional agent registry instance.
             task_queue: Optional task queue instance.
+            memory_manager: Optional memory manager instance.
         """
         # Core components
         self.workflow_engine = WorkflowEngine()
         self.project_manager = ProjectManager()
         self.task_dispatcher = TaskDispatcher()
+        self.memory_manager = memory_manager or MemoryManager()
 
         # External components (can be injected)
         self.message_bus = message_bus or MessageBus()
@@ -93,12 +98,13 @@ class Orchestrator:
         """
         Initialize the orchestrator and its components.
 
-        This starts the message bus, event emitter, and agent registry
-        health check.
+        This starts the message bus, event emitter, agent registry
+        health check, and memory manager.
         """
         await self.message_bus.start()
         await self.event_emitter.start()
         await self.agent_registry.start_health_check()
+        await self.memory_manager.initialize()
         self._running = True
         self.logger.info("Orchestrator initialized")
 
@@ -112,6 +118,7 @@ class Orchestrator:
         await self.message_bus.stop()
         await self.event_emitter.stop()
         await self.agent_registry.stop_health_check()
+        await self.memory_manager.close()
         self.logger.info("Orchestrator shutdown")
 
     def register_agent(self, name: str, agent: Any, capabilities: list[str]) -> None:
@@ -126,6 +133,21 @@ class Orchestrator:
         self._agents[name] = agent
         self.agent_registry.register(name, capabilities=capabilities)
         self.logger.info(f"Registered agent: {name}")
+
+    async def get_agent_context(self, project_id: str, agent_name: str) -> str:
+        """
+        Get formatted context for agent.
+
+        Args:
+            project_id: Project identifier.
+            agent_name: Name of the agent.
+
+        Returns:
+            Formatted context string for the agent.
+        """
+        return await self.memory_manager.get_formatted_context(
+            project_id, agent_name
+        )
 
     async def start_project(
         self,
