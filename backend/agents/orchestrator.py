@@ -7,9 +7,9 @@ together efficiently to complete projects.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from backend.agents.base_agent import BaseAgent, AgentState
+from backend.agents.base_agent import BaseAgent
 from backend.models.schemas import Message, Task
 
 
@@ -36,7 +36,7 @@ class Orchestrator(BaseAgent):
         self,
         name: str = "Orchestrator",
         model: str = "gemini-pro",
-        message_bus: Optional[Any] = None,
+        message_bus: Any | None = None,
     ) -> None:
         """
         Initialize the Orchestrator agent.
@@ -47,17 +47,17 @@ class Orchestrator(BaseAgent):
             message_bus: Reference to the message bus for communication.
         """
         super().__init__(name=name, model=model, message_bus=message_bus)
-        self._active_tasks: Dict[str, Task] = {}
-        self._completed_tasks: List[str] = []
-        self._agent_registry: Dict[str, Dict[str, Any]] = {}
+        self._active_tasks: dict[str, Task] = {}
+        self._completed_tasks: list[str] = []
+        self._agent_registry: dict[str, dict[str, Any]] = {}
 
     @property
-    def active_tasks(self) -> Dict[str, Task]:
+    def active_tasks(self) -> dict[str, Task]:
         """Get all currently active tasks."""
         return self._active_tasks
 
     @property
-    def completed_tasks(self) -> List[str]:
+    def completed_tasks(self) -> list[str]:
         """Get list of completed task IDs."""
         return self._completed_tasks
 
@@ -144,7 +144,7 @@ class Orchestrator(BaseAgent):
         )
         # TODO: Implement message handling logic
 
-    async def create_task_plan(self, requirements: str) -> List[Task]:
+    async def create_task_plan(self, requirements: str) -> list[Task]:
         """
         Create a task plan from project requirements.
 
@@ -192,7 +192,7 @@ class Orchestrator(BaseAgent):
 
         # TODO: Check if dependent tasks can now be started
 
-    async def get_project_status(self) -> Dict[str, Any]:
+    async def get_project_status(self) -> dict[str, Any]:
         """
         Get the current status of the project.
 

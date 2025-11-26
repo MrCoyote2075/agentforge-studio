@@ -5,15 +5,12 @@ This module handles loading environment variables and managing
 application settings.
 """
 
-import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings
-
 
 # Load environment variables from .env file
 load_dotenv()
@@ -54,6 +51,24 @@ class Settings(BaseSettings):
     anthropic_api_key: str = Field(
         default="",
         description="Anthropic API key",
+    )
+
+    # AI Provider Configuration
+    default_ai_provider: str = Field(
+        default="gemini",
+        description="Default AI provider (gemini, openai, or anthropic)",
+    )
+    gemini_model: str = Field(
+        default="gemini-1.5-pro",
+        description="Gemini model to use",
+    )
+    openai_model: str = Field(
+        default="gpt-4-turbo",
+        description="OpenAI model to use",
+    )
+    anthropic_model: str = Field(
+        default="claude-3-sonnet-20240229",
+        description="Anthropic model to use",
     )
 
     # Server Configuration
@@ -159,7 +174,7 @@ class Settings(BaseSettings):
         return providers
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     """
     Get the application settings singleton.

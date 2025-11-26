@@ -9,8 +9,9 @@ to receive messages from other agents.
 import asyncio
 import logging
 from collections import defaultdict
+from collections.abc import Callable, Coroutine
 from datetime import datetime
-from typing import Any, Callable, Coroutine, Dict, List, Optional, Set
+from typing import Any
 from uuid import uuid4
 
 from backend.models.schemas import Message
@@ -77,13 +78,13 @@ class MessageBus:
         Args:
             max_history: Maximum number of messages to keep in history.
         """
-        self._subscriptions: Dict[str, List[Subscription]] = defaultdict(list)
-        self._agent_subscriptions: Dict[str, Set[str]] = defaultdict(set)
+        self._subscriptions: dict[str, list[Subscription]] = defaultdict(list)
+        self._agent_subscriptions: dict[str, set[str]] = defaultdict(set)
         self._message_queue: asyncio.Queue[Message] = asyncio.Queue()
-        self._message_history: List[Message] = []
+        self._message_history: list[Message] = []
         self._max_history = max_history
         self._running = False
-        self._processor_task: Optional[asyncio.Task] = None
+        self._processor_task: asyncio.Task | None = None
         self.logger = logging.getLogger("message_bus")
 
     async def start(self) -> None:
@@ -295,8 +296,8 @@ class MessageBus:
     def get_message_history(
         self,
         limit: int = 100,
-        topic: Optional[str] = None,
-    ) -> List[Message]:
+        topic: str | None = None,
+    ) -> list[Message]:
         """
         Get recent message history.
 
@@ -314,7 +315,7 @@ class MessageBus:
             pass
         return messages
 
-    def get_subscription_count(self, topic: Optional[str] = None) -> int:
+    def get_subscription_count(self, topic: str | None = None) -> int:
         """
         Get the number of active subscriptions.
 
@@ -328,7 +329,7 @@ class MessageBus:
             return len(self._subscriptions.get(topic, []))
         return sum(len(subs) for subs in self._subscriptions.values())
 
-    def get_topics(self) -> List[str]:
+    def get_topics(self) -> list[str]:
         """
         Get all topics with active subscriptions.
 

@@ -7,7 +7,7 @@ serialization, and API request/response handling.
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -59,7 +59,7 @@ class Message(BaseModel):
         default_factory=datetime.utcnow,
         description="Message timestamp",
     )
-    metadata: Optional[Dict[str, Any]] = Field(
+    metadata: dict[str, Any] | None = Field(
         default=None,
         description="Optional metadata",
     )
@@ -116,7 +116,7 @@ class Task(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid4()), description="Task ID")
     description: str = Field(..., description="Task description")
-    assigned_to: Optional[str] = Field(
+    assigned_to: str | None = Field(
         default=None,
         description="Agent assigned to this task",
     )
@@ -124,11 +124,11 @@ class Task(BaseModel):
         default=TaskStatus.PENDING,
         description="Current status",
     )
-    dependencies: List[str] = Field(
+    dependencies: list[str] = Field(
         default_factory=list,
         description="Task IDs this depends on",
     )
-    result: Optional[Any] = Field(
+    result: Any | None = Field(
         default=None,
         description="Task result when completed",
     )
@@ -136,7 +136,7 @@ class Task(BaseModel):
         default_factory=datetime.utcnow,
         description="Creation timestamp",
     )
-    completed_at: Optional[datetime] = Field(
+    completed_at: datetime | None = Field(
         default=None,
         description="Completion timestamp",
     )
@@ -218,7 +218,7 @@ class Project(BaseModel):
         description="Project status",
     )
     requirements: str = Field(..., description="Client requirements")
-    files: List[str] = Field(
+    files: list[str] = Field(
         default_factory=list,
         description="Generated file paths",
     )
@@ -226,7 +226,7 @@ class Project(BaseModel):
         default_factory=datetime.utcnow,
         description="Creation timestamp",
     )
-    updated_at: Optional[datetime] = Field(
+    updated_at: datetime | None = Field(
         default=None,
         description="Last update timestamp",
     )
@@ -259,7 +259,7 @@ class AgentStatus(BaseModel):
 
     name: str = Field(..., description="Agent name")
     status: str = Field(default="idle", description="Agent status")
-    current_task: Optional[str] = Field(
+    current_task: str | None = Field(
         default=None,
         description="Current task being worked on",
     )
@@ -298,7 +298,7 @@ class ChatMessage(BaseModel):
     """
 
     content: str = Field(..., description="Message content")
-    project_id: Optional[str] = Field(
+    project_id: str | None = Field(
         default=None,
         description="Associated project ID",
     )
@@ -334,7 +334,7 @@ class ChatRequest(BaseModel):
     """
 
     message: str = Field(..., min_length=1, description="User message")
-    project_id: Optional[str] = Field(
+    project_id: str | None = Field(
         default=None,
         description="Project ID to associate with",
     )
@@ -361,11 +361,11 @@ class ChatResponse(BaseModel):
     """
 
     message: str = Field(..., description="Agent response message")
-    project_id: Optional[str] = Field(
+    project_id: str | None = Field(
         default=None,
         description="Associated project ID",
     )
-    agent_statuses: Optional[List[AgentStatus]] = Field(
+    agent_statuses: list[AgentStatus] | None = Field(
         default=None,
         description="Current agent statuses",
     )
@@ -399,8 +399,8 @@ class FileInfo(BaseModel):
     name: str = Field(..., description="File name")
     path: str = Field(..., description="Relative path")
     type: str = Field(..., description="Type (file or directory)")
-    size: Optional[int] = Field(default=None, description="Size in bytes")
-    modified: Optional[str] = Field(default=None, description="Last modified")
+    size: int | None = Field(default=None, description="Size in bytes")
+    modified: str | None = Field(default=None, description="Last modified")
 
 
 class ErrorResponse(BaseModel):
@@ -413,4 +413,4 @@ class ErrorResponse(BaseModel):
     """
 
     detail: str = Field(..., description="Error message")
-    code: Optional[str] = Field(default=None, description="Error code")
+    code: str | None = Field(default=None, description="Error code")

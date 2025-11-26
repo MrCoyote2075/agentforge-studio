@@ -7,10 +7,11 @@ specifications and provides user-friendly progress updates.
 """
 
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any
 
-from backend.agents.base_agent import BaseAgent, AgentState
-from backend.models.schemas import Message, ChatMessage
+from backend.agents.base_agent import BaseAgent
+from backend.core.ai_clients.base_client import AIClientError
+from backend.models.schemas import ChatMessage, Message
 
 
 class Intermediator(BaseAgent):
@@ -35,7 +36,7 @@ class Intermediator(BaseAgent):
         self,
         name: str = "Intermediator",
         model: str = "gemini-pro",
-        message_bus: Optional[Any] = None,
+        message_bus: Any | None = None,
     ) -> None:
         """
         Initialize the Intermediator agent.
@@ -46,18 +47,32 @@ class Intermediator(BaseAgent):
             message_bus: Reference to the message bus for communication.
         """
         super().__init__(name=name, model=model, message_bus=message_bus)
-        self._conversation_history: List[ChatMessage] = []
-        self._current_project_id: Optional[str] = None
+        self._conversation_history: list[ChatMessage] = []
+        self._current_project_id: str | None = None
 
     @property
-    def conversation_history(self) -> List[ChatMessage]:
+    def conversation_history(self) -> list[ChatMessage]:
         """Get the conversation history."""
         return self._conversation_history
 
     @property
-    def current_project_id(self) -> Optional[str]:
+    def current_project_id(self) -> str | None:
         """Get the current project ID."""
         return self._current_project_id
+
+    def _build_conversation_context(self) -> str:
+        """Build conversation context from history for AI."""
+        if not self._conversation_history:
+            return ""
+
+        context_parts = ["Previous conversation:"]
+        # Include last 10 messages for context
+        recent_history = self._conversation_history[-10:]
+        for msg in recent_history:
+            role = "User" if msg.role == "user" else "Assistant"
+            context_parts.append(f"{role}: {msg.content}")
+
+        return "\n".join(context_parts)
 
     async def process(self, message: Message) -> Message:
         """
@@ -74,15 +89,27 @@ class Intermediator(BaseAgent):
         """
         await self._set_busy(f"Processing message from {message.from_agent}")
 
-        # TODO: Implement AI-powered message processing
-        # 1. Determine if message is from client or agent
-        # 2. For client: translate requirements and forward to Orchestrator
-        # 3. For agent: translate technical updates for client
+        try:
+            # Build prompt with context
+            context = self._build_conversation_context()
+            prompt = f"{context}\n\nNew message: {message.content}"
 
-        response_content = (
-            f"I've received your request and am coordinating with the team. "
-            f"Summary: {message.content[:100]}..."
-        )
+            # Get AI response
+            response_content = await self.get_ai_response(prompt)
+
+        except AIClientError as e:
+            self.logger.error(f"AI generation failed: {e}")
+            response_content = (
+                "I apologize, but I'm having trouble processing your request "
+                "right now. Please try again in a moment."
+            )
+            await self._set_error(str(e))
+        except Exception as e:
+            self.logger.error(f"Unexpected error: {e}")
+            response_content = (
+                "I encountered an unexpected error. Please try again."
+            )
+            await self._set_error(str(e))
 
         await self._set_idle()
 
@@ -123,7 +150,6 @@ class Intermediator(BaseAgent):
             timestamp=datetime.utcnow(),
         )
 
-        # TODO: Implement actual message bus publishing
         await self._log_activity("Sending message", f"To: {to_agent}")
         return True
 
@@ -138,9 +164,8 @@ class Intermediator(BaseAgent):
             "Received message",
             f"From: {message.from_agent}, Type: {message.message_type}",
         )
-        # TODO: Implement message handling and client notification
 
-    async def chat(self, user_message: str, project_id: Optional[str] = None) -> str:
+    async def chat(self, user_message: str, project_id: str | None = None) -> str:
         """
         Handle a chat message from the user.
 
@@ -168,16 +193,50 @@ class Intermediator(BaseAgent):
         if project_id:
             self._current_project_id = project_id
 
-        # TODO: Implement AI-powered chat response
-        # 1. Analyze user intent
-        # 2. Extract requirements or questions
-        # 3. Coordinate with Orchestrator if needed
-        # 4. Generate friendly response
+        try:
+            # Build context from conversation history
+            context = self._build_conversation_context()
 
-        response = (
-            f"Thanks for your message! I understand you want: '{user_message[:50]}...'. "
-            "Let me coordinate with the team to get this done."
-        )
+            # Create prompt for AI
+            if len(self._conversation_history) == 1:
+                # First message - greet and ask about project
+                prompt = f"""The user just started a conversation with this message:
+
+"{user_message}"
+
+Greet them warmly and start gathering requirements. Ask about:
+- What type of website/project they want to build
+- Any specific features they need
+- Their design preferences
+
+Keep your response friendly and concise."""
+            else:
+                # Continuing conversation
+                prompt = f"""{context}
+
+User's new message: "{user_message}"
+
+Continue the conversation naturally. If you have enough information about their project requirements, summarize what you understand and ask if they'd like to proceed. Otherwise, ask clarifying questions about:
+- Website type, pages needed, design preferences, features, content needs
+
+Keep responses friendly, helpful, and concise."""
+
+            # Get AI response
+            response = await self.get_ai_response(prompt)
+
+        except AIClientError as e:
+            self.logger.error(f"AI chat generation failed: {e}")
+            response = (
+                "I apologize, but I'm having trouble connecting right now. "
+                "Please try again in a moment. In the meantime, feel free to "
+                "describe what you'd like to build!"
+            )
+        except Exception as e:
+            self.logger.error(f"Unexpected chat error: {e}")
+            response = (
+                "I encountered an unexpected issue. Please try again, "
+                "and I'll do my best to help you with your project."
+            )
 
         # Store assistant response
         assistant_message = ChatMessage(
@@ -210,13 +269,45 @@ class Intermediator(BaseAgent):
         Returns:
             dict: Structured technical specifications.
         """
-        # TODO: Implement AI-powered requirement extraction
         await self._log_activity("Translating requirements", user_input[:50])
-        return {
-            "raw_input": user_input,
-            "extracted_features": [],
-            "technical_requirements": [],
-        }
+
+        try:
+            prompt = f"""Analyze the following user requirements and extract structured information:
+
+"{user_input}"
+
+Extract and return a JSON object with:
+- website_type: The type of website (portfolio, business, landing, etc.)
+- pages: List of pages needed
+- features: List of features requested
+- design_preferences: Any design preferences mentioned
+- content_notes: Notes about content they have or need
+
+Return only valid JSON, no additional text."""
+
+            response = await self.get_ai_response(prompt)
+
+            # Try to parse as JSON
+            import json
+
+            try:
+                return json.loads(response)
+            except json.JSONDecodeError:
+                return {
+                    "raw_input": user_input,
+                    "extracted_features": [],
+                    "technical_requirements": [],
+                    "parse_error": "Could not parse AI response as JSON",
+                }
+
+        except Exception as e:
+            self.logger.error(f"Failed to translate requirements: {e}")
+            return {
+                "raw_input": user_input,
+                "extracted_features": [],
+                "technical_requirements": [],
+                "error": str(e),
+            }
 
     async def format_update_for_user(self, technical_update: str) -> str:
         """
@@ -228,5 +319,20 @@ class Intermediator(BaseAgent):
         Returns:
             str: User-friendly version of the update.
         """
-        # TODO: Implement AI-powered translation
-        return f"Update: {technical_update}"
+        try:
+            prompt = f"""Convert this technical update into friendly, non-technical language for a client:
+
+Technical update: "{technical_update}"
+
+Keep it brief, positive, and easy to understand. Don't use technical jargon."""
+
+            return await self.get_ai_response(prompt)
+
+        except Exception as e:
+            self.logger.error(f"Failed to format update: {e}")
+            return f"Update: {technical_update}"
+
+    def clear_history(self) -> None:
+        """Clear the conversation history."""
+        self._conversation_history = []
+        self._current_project_id = None

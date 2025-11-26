@@ -5,13 +5,15 @@ This module defines the abstract base class for all AI agents in the system.
 All specialized agents inherit from BaseAgent and implement its abstract methods.
 """
 
+import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
-import logging
+from pathlib import Path
+from typing import Any
 
-from backend.models.schemas import Message, AgentStatus
+from backend.core.ai_clients.provider_manager import ProviderManager
+from backend.models.schemas import AgentStatus, Message
 
 
 class AgentState(str, Enum):
@@ -24,13 +26,25 @@ class AgentState(str, Enum):
     OFFLINE = "offline"
 
 
+# Singleton provider manager for all agents
+_provider_manager: ProviderManager | None = None
+
+
+def get_provider_manager() -> ProviderManager:
+    """Get or create the shared provider manager instance."""
+    global _provider_manager
+    if _provider_manager is None:
+        _provider_manager = ProviderManager()
+    return _provider_manager
+
+
 class BaseAgent(ABC):
     """
     Abstract base class for all AI agents in AgentForge Studio.
 
     This class provides the common interface and functionality that all
     specialized agents must implement. It handles message passing, state
-    management, and logging.
+    management, AI client integration, and logging.
 
     Attributes:
         name: The unique name identifier for this agent.
@@ -45,11 +59,14 @@ class BaseAgent(ABC):
         ...         return f"Processed: {message.content}"
     """
 
+    # Path to prompts directory
+    PROMPTS_DIR = Path(__file__).parent / "prompts"
+
     def __init__(
         self,
         name: str,
         model: str = "gemini-pro",
-        message_bus: Optional[Any] = None,
+        message_bus: Any | None = None,
     ) -> None:
         """
         Initialize the base agent.
@@ -63,9 +80,27 @@ class BaseAgent(ABC):
         self._model = model
         self._status = AgentState.IDLE
         self._message_bus = message_bus
-        self._current_task: Optional[str] = None
+        self._current_task: str | None = None
         self._created_at = datetime.utcnow()
         self.logger = logging.getLogger(f"agent.{name}")
+        self._system_prompt: str | None = None
+        self._load_system_prompt()
+
+    def _load_system_prompt(self) -> None:
+        """Load the system prompt from the prompts directory."""
+        # Convert agent name to prompt filename
+        prompt_name = self._name.lower().replace(" ", "_")
+        prompt_file = self.PROMPTS_DIR / f"{prompt_name}_prompt.txt"
+
+        if prompt_file.exists():
+            try:
+                self._system_prompt = prompt_file.read_text(encoding="utf-8")
+                self.logger.debug(f"Loaded system prompt from {prompt_file}")
+            except Exception as e:
+                self.logger.warning(f"Failed to load system prompt: {e}")
+                self._system_prompt = None
+        else:
+            self.logger.debug(f"No system prompt file found at {prompt_file}")
 
     @property
     def name(self) -> str:
@@ -89,7 +124,7 @@ class BaseAgent(ABC):
         self.logger.info(f"Status changed to: {value}")
 
     @property
-    def message_bus(self) -> Optional[Any]:
+    def message_bus(self) -> Any | None:
         """Get the message bus reference."""
         return self._message_bus
 
@@ -99,9 +134,19 @@ class BaseAgent(ABC):
         self._message_bus = value
 
     @property
-    def current_task(self) -> Optional[str]:
+    def current_task(self) -> str | None:
         """Get the current task being processed."""
         return self._current_task
+
+    @property
+    def system_prompt(self) -> str | None:
+        """Get the agent's system prompt."""
+        return self._system_prompt
+
+    @property
+    def ai_client(self) -> ProviderManager:
+        """Get the shared AI provider manager."""
+        return get_provider_manager()
 
     def get_status(self) -> AgentStatus:
         """
@@ -115,6 +160,74 @@ class BaseAgent(ABC):
             status=self._status.value,
             current_task=self._current_task,
         )
+
+    async def get_ai_response(
+        self,
+        prompt: str,
+        system_prompt: str | None = None,
+        **kwargs,
+    ) -> str:
+        """
+        Get a response from the AI using the configured provider.
+
+        Args:
+            prompt: The user prompt.
+            system_prompt: Optional system prompt. If not provided,
+                           uses the agent's default system prompt.
+            **kwargs: Additional parameters for generation.
+
+        Returns:
+            str: The AI-generated response.
+
+        Raises:
+            AIClientError: If generation fails.
+        """
+        # Use agent's system prompt if none provided
+        effective_system_prompt = system_prompt or self._system_prompt
+
+        try:
+            response, provider = await self.ai_client.generate(
+                prompt=prompt,
+                system_prompt=effective_system_prompt,
+                **kwargs,
+            )
+            self.logger.debug(f"Generated response using {provider}")
+            return response
+        except Exception as e:
+            self.logger.error(f"AI generation failed: {e}")
+            raise
+
+    async def generate_code(
+        self,
+        prompt: str,
+        language: str = "python",
+        **kwargs,
+    ) -> str:
+        """
+        Generate code using the AI.
+
+        Args:
+            prompt: Description of the code to generate.
+            language: Programming language.
+            **kwargs: Additional parameters.
+
+        Returns:
+            str: The generated code.
+
+        Raises:
+            AIClientError: If generation fails.
+        """
+        try:
+            code, provider = await self.ai_client.generate_code(
+                prompt=prompt,
+                language=language,
+                **kwargs,
+            )
+            self.logger.debug(f"Generated code using {provider}")
+            return code
+        except Exception as e:
+            self.logger.error(f"Code generation failed: {e}")
+            raise
 
     @abstractmethod
     async def process(self, message: Message) -> Message:
@@ -133,7 +246,6 @@ class BaseAgent(ABC):
         Raises:
             NotImplementedError: If the child class doesn't implement this method.
         """
-        # TODO: Implement in child classes
         raise NotImplementedError("Subclasses must implement process()")
 
     @abstractmethod
@@ -157,7 +269,6 @@ class BaseAgent(ABC):
         Raises:
             NotImplementedError: If the child class doesn't implement this method.
         """
-        # TODO: Implement in child classes
         raise NotImplementedError("Subclasses must implement send_message()")
 
     @abstractmethod
@@ -174,10 +285,9 @@ class BaseAgent(ABC):
         Raises:
             NotImplementedError: If the child class doesn't implement this method.
         """
-        # TODO: Implement in child classes
         raise NotImplementedError("Subclasses must implement receive_message()")
 
-    async def _log_activity(self, action: str, details: Optional[str] = None) -> None:
+    async def _log_activity(self, action: str, details: str | None = None) -> None:
         """
         Log agent activity for debugging and monitoring.
 
@@ -209,6 +319,44 @@ class BaseAgent(ABC):
         if previous_task:
             await self._log_activity("Completed task", previous_task)
 
+    async def _set_error(self, error: str) -> None:
+        """Set the agent to error status."""
+        self._status = AgentState.ERROR
+        await self._log_activity("Error occurred", error)
+
+    @staticmethod
+    def _clean_code_response(response: str, language: str = "") -> str:
+        """
+        Clean markdown code blocks from an AI response.
+
+        Args:
+            response: The raw AI response that may contain code blocks.
+            language: Optional language hint for the code block.
+
+        Returns:
+            str: The cleaned code without markdown formatting.
+        """
+        clean = response.strip()
+        # Remove language-specific markdown code blocks
+        if language:
+            prefix = f"```{language}"
+            if clean.startswith(prefix):
+                clean = clean[len(prefix):]
+        # Remove generic markdown code blocks
+        if clean.startswith("```"):
+            # Find the first newline to skip the language tag if any
+            first_newline = clean.find("\n")
+            if first_newline != -1:
+                clean = clean[first_newline + 1:]
+            else:
+                clean = clean[3:]
+        if clean.endswith("```"):
+            clean = clean[:-3]
+        return clean.strip()
+
     def __repr__(self) -> str:
         """Return a string representation of the agent."""
-        return f"{self.__class__.__name__}(name='{self._name}', status='{self._status.value}')"
+        return (
+            f"{self.__class__.__name__}"
+            f"(name='{self._name}', status='{self._status.value}')"
+        )

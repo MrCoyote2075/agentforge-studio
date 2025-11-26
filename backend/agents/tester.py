@@ -6,10 +6,10 @@ validating functionality, and reporting bugs.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
 from enum import Enum
+from typing import Any
 
-from backend.agents.base_agent import BaseAgent, AgentState
+from backend.agents.base_agent import BaseAgent
 from backend.models.schemas import Message
 
 
@@ -30,7 +30,7 @@ class TestResult:
         test_name: str,
         status: TestStatus,
         duration_ms: float,
-        error_message: Optional[str] = None,
+        error_message: str | None = None,
     ) -> None:
         """
         Initialize a test result.
@@ -68,7 +68,7 @@ class Tester(BaseAgent):
         self,
         name: str = "Tester",
         model: str = "gemini-pro",
-        message_bus: Optional[Any] = None,
+        message_bus: Any | None = None,
     ) -> None:
         """
         Initialize the Tester agent.
@@ -79,9 +79,9 @@ class Tester(BaseAgent):
             message_bus: Reference to the message bus for communication.
         """
         super().__init__(name=name, model=model, message_bus=message_bus)
-        self._test_results: List[TestResult] = []
-        self._test_suites: Dict[str, List[str]] = {}
-        self._generated_tests: Dict[str, str] = {}
+        self._test_results: list[TestResult] = []
+        self._test_suites: dict[str, list[str]] = {}
+        self._generated_tests: dict[str, str] = {}
 
     async def process(self, message: Message) -> Message:
         """
@@ -193,7 +193,7 @@ def test_placeholder():
         await self._set_idle()
         return test_code
 
-    async def run_tests(self, test_path: str) -> List[TestResult]:
+    async def run_tests(self, test_path: str) -> list[TestResult]:
         """
         Run tests at the specified path.
 
@@ -206,7 +206,7 @@ def test_placeholder():
         await self._set_busy(f"Running tests: {test_path}")
 
         # TODO: Implement test execution
-        results: List[TestResult] = []
+        results: list[TestResult] = []
 
         self._test_results.extend(results)
         await self._set_idle()
@@ -214,9 +214,9 @@ def test_placeholder():
 
     async def validate_functionality(
         self,
-        specs: Dict[str, Any],
+        specs: dict[str, Any],
         implementation: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Validate that implementation matches specifications.
 
@@ -239,7 +239,7 @@ def test_placeholder():
         await self._set_idle()
         return validation_result
 
-    async def generate_test_report(self) -> Dict[str, Any]:
+    async def generate_test_report(self) -> dict[str, Any]:
         """
         Generate a test report.
 
@@ -264,8 +264,8 @@ def test_placeholder():
         self,
         description: str,
         severity: str,
-        steps_to_reproduce: List[str],
-    ) -> Dict[str, Any]:
+        steps_to_reproduce: list[str],
+    ) -> dict[str, Any]:
         """
         Report a bug found during testing.
 

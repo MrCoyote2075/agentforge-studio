@@ -9,8 +9,8 @@ import asyncio
 import logging
 import mimetypes
 import os
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
 
 from backend.core.config import get_settings
 
@@ -37,8 +37,8 @@ class PreviewServer:
 
     def __init__(
         self,
-        host: Optional[str] = None,
-        port: Optional[int] = None,
+        host: str | None = None,
+        port: int | None = None,
     ) -> None:
         """
         Initialize the preview server.
@@ -51,10 +51,10 @@ class PreviewServer:
         self._host = host or settings.api_host
         self._port = port or settings.preview_port
         self._workspace_path = settings.workspace_path
-        self._project_id: Optional[str] = None
-        self._server: Optional[asyncio.Server] = None
+        self._project_id: str | None = None
+        self._server: asyncio.Server | None = None
         self._running = False
-        self._watchers: Dict[str, asyncio.Task] = {}
+        self._watchers: dict[str, asyncio.Task] = {}
         self._on_change_callbacks: list[Callable[[str], None]] = []
         self.logger = logging.getLogger("preview_server")
 
@@ -69,7 +69,7 @@ class PreviewServer:
         return self._port
 
     @property
-    def project_id(self) -> Optional[str]:
+    def project_id(self) -> str | None:
         """Get the currently previewing project."""
         return self._project_id
 
@@ -375,7 +375,7 @@ class PreviewServer:
             return
 
         project_path = self._workspace_path / self._project_id
-        last_modified: Dict[str, float] = {}
+        last_modified: dict[str, float] = {}
 
         while self._running:
             try:

@@ -7,10 +7,9 @@ including initialization, commits, and repository management.
 
 import asyncio
 import logging
-import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class GitManager:
@@ -29,7 +28,7 @@ class GitManager:
         >>> await git.commit("my-project", "Initial commit")
     """
 
-    def __init__(self, workspace_path: Optional[Path] = None) -> None:
+    def __init__(self, workspace_path: Path | None = None) -> None:
         """
         Initialize the Git manager.
 
@@ -137,7 +136,7 @@ class GitManager:
         project_id: str,
         message: str,
         add_all: bool = True,
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Create a Git commit.
 
@@ -182,7 +181,7 @@ class GitManager:
         self,
         project_id: str,
         limit: int = 10,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Get the commit log for a project.
 
@@ -220,7 +219,7 @@ class GitManager:
 
         return commits
 
-    async def get_status(self, project_id: str) -> Dict[str, Any]:
+    async def get_status(self, project_id: str) -> dict[str, Any]:
         """
         Get the Git status for a project.
 
@@ -270,7 +269,7 @@ class GitManager:
     async def get_diff(
         self,
         project_id: str,
-        file_path: Optional[str] = None,
+        file_path: str | None = None,
     ) -> str:
         """
         Get the diff for a project or specific file.
@@ -343,7 +342,7 @@ class GitManager:
             self.logger.error(f"Failed to switch branch: {stderr}")
             return False
 
-    async def list_branches(self, project_id: str) -> List[str]:
+    async def list_branches(self, project_id: str) -> list[str]:
         """
         List all branches in a project.
 
@@ -370,7 +369,7 @@ class GitManager:
 
         return branches
 
-    async def get_current_branch(self, project_id: str) -> Optional[str]:
+    async def get_current_branch(self, project_id: str) -> str | None:
         """
         Get the current branch name.
 
@@ -427,7 +426,7 @@ class GitManager:
         self,
         project_id: str,
         remote: str = "origin",
-        branch: Optional[str] = None,
+        branch: str | None = None,
     ) -> bool:
         """
         Push commits to a remote repository.
