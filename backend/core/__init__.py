@@ -17,8 +17,16 @@ from backend.core.file_lock_manager import (
 )
 from backend.core.git_manager import GitManager
 from backend.core.message_bus import MessageBus
+from backend.core.orchestrator import Orchestrator
 from backend.core.preview_server import PreviewServer
+from backend.core.project_manager import ProjectManager
+from backend.core.task_dispatcher import (
+    DispatchedTask,
+    DispatchedTaskState,
+    TaskDispatcher,
+)
 from backend.core.task_queue import AsyncTaskQueue, TaskQueue
+from backend.core.workflow_engine import WorkflowEngine
 from backend.core.workspace_manager import WorkspaceManager
 
 __all__ = [
@@ -38,6 +46,13 @@ __all__ = [
     "LockAcquisitionError",
     # Agent Management
     "AgentRegistry",
+    # Orchestration
+    "Orchestrator",
+    "WorkflowEngine",
+    "ProjectManager",
+    "TaskDispatcher",
+    "DispatchedTask",
+    "DispatchedTaskState",
     # Other
     "WorkspaceManager",
     "GitManager",
