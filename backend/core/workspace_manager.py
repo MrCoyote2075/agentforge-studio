@@ -9,10 +9,15 @@ import json
 import shutil
 from typing import Any, List, Optional
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from enum import Enum
 import uuid
+
+
+def _utc_now() -> datetime:
+    """Return current UTC time as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 
 class WorkspaceStatus(Enum):
@@ -43,8 +48,8 @@ class Workspace:
     path: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     status: WorkspaceStatus = WorkspaceStatus.CREATED
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=_utc_now)
+    updated_at: datetime = field(default_factory=_utc_now)
     metadata: dict[str, Any] = field(default_factory=dict)
     
     def to_dict(self) -> dict[str, Any]:
@@ -81,10 +86,10 @@ class Workspace:
             path=data["path"],
             status=WorkspaceStatus(data.get("status", "created")),
             created_at=datetime.fromisoformat(
-                data.get("created_at", datetime.utcnow().isoformat())
+                data.get("created_at", _utc_now().isoformat())
             ),
             updated_at=datetime.fromisoformat(
-                data.get("updated_at", datetime.utcnow().isoformat())
+                data.get("updated_at", _utc_now().isoformat())
             ),
             metadata=data.get("metadata", {})
         )
@@ -276,7 +281,7 @@ class WorkspaceManager:
         if metadata is not None:
             workspace.metadata.update(metadata)
         
-        workspace.updated_at = datetime.utcnow()
+        workspace.updated_at = _utc_now()
         self._save_workspaces()
         
         return workspace

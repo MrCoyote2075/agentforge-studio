@@ -9,8 +9,13 @@ import json
 from typing import Any, Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
+
+
+def _utc_now() -> datetime:
+    """Return current UTC time as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 
 websocket_router = APIRouter(tags=["websocket"])
@@ -29,7 +34,7 @@ class WebSocketConnection:
     """
     websocket: WebSocket
     client_id: str
-    connected_at: datetime = field(default_factory=datetime.utcnow)
+    connected_at: datetime = field(default_factory=_utc_now)
     subscriptions: list[str] = field(default_factory=list)
 
 

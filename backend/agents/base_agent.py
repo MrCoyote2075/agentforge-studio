@@ -8,9 +8,14 @@ in the system.
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 import uuid
+
+
+def _utc_now() -> datetime:
+    """Return current UTC time as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 
 class AgentStatus(Enum):
@@ -38,7 +43,7 @@ class AgentMessage:
     recipient: str
     content: Any
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=_utc_now)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
