@@ -20,6 +20,15 @@ from backend.models.messages import (
 )
 from backend.models.messages import Message as BusMessage
 from backend.models.messages import Task as BusTask
+from backend.models.project import (
+    DevelopmentPlan,
+    GeneratedFile,
+    PlanTask,
+    ProjectRequirements,
+    ProjectStage,
+    ProjectSummary,
+)
+from backend.models.project import Project as WorkflowProject
 from backend.models.schemas import (
     AgentStatus,
     ChatMessage,
@@ -59,4 +68,12 @@ __all__ = [
     "Event",
     "BusTask",
     "AgentInfo",
+    # project.py models (workflow)
+    "ProjectStage",
+    "ProjectRequirements",
+    "PlanTask",
+    "DevelopmentPlan",
+    "GeneratedFile",
+    "WorkflowProject",
+    "ProjectSummary",
 ]
