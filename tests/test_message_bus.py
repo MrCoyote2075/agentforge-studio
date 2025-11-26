@@ -7,8 +7,6 @@ emission, file locking, and agent registry.
 """
 
 import asyncio
-from datetime import datetime, timedelta
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -155,7 +153,7 @@ class TestMessageBus:
             received_messages.append(msg)
 
         await bus.subscribe("test_topic", handler, "test_agent")
-        
+
         msg = Message(
             from_agent="sender",
             to_agent="test_agent",
@@ -263,7 +261,7 @@ class TestTaskQueue:
             type="create_html",
             description="Build homepage",
         )
-        
+
         task_id = queue.add_task(task)
         retrieved = queue.get_task(task_id)
 
@@ -289,9 +287,15 @@ class TestTaskQueue:
         """Test that high priority tasks are returned first."""
         queue = TaskQueue()
 
-        low = Task(type="low", description="Low priority", priority=TaskPriority.LOW)
-        high = Task(type="high", description="High priority", priority=TaskPriority.HIGH)
-        medium = Task(type="medium", description="Medium priority", priority=TaskPriority.MEDIUM)
+        low = Task(
+            type="low", description="Low priority", priority=TaskPriority.LOW
+        )
+        high = Task(
+            type="high", description="High priority", priority=TaskPriority.HIGH
+        )
+        medium = Task(
+            type="medium", description="Medium priority", priority=TaskPriority.MEDIUM
+        )
 
         queue.add_task(low)
         queue.add_task(medium)
@@ -384,7 +388,7 @@ class TestTaskQueue:
     def test_get_tasks_by_state(self):
         """Test getting tasks by state."""
         queue = TaskQueue()
-        
+
         for i in range(3):
             task = Task(type="test", description=f"Task {i}")
             queue.add_task(task)
@@ -477,7 +481,7 @@ class TestEventEmitter:
 
         emitter.on("test", handler)
         await emitter.emit("test")
-        
+
         emitter.off("test", handler)
         await emitter.emit("test")
 
@@ -786,7 +790,7 @@ class TestIntegration:
     async def test_full_workflow(self):
         """Test a complete workflow with all components."""
         # Setup components
-        bus = MessageBus()
+        _bus = MessageBus()  # noqa: F841
         queue = AsyncTaskQueue()
         emitter = EventEmitter()
         lock_manager = FileLockManager()
