@@ -182,4 +182,7 @@ class BaseAIClient(ABC):
 
     def __repr__(self) -> str:
         """Return a string representation of the client."""
-        return f"{self.__class__.__name__}(provider='{self.provider_name}', model='{self.model}')"
+        return (
+            f"{self.__class__.__name__}"
+            f"(provider='{self.provider_name}', model='{self.model}')"
+        )

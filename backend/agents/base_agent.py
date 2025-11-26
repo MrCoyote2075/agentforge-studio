@@ -324,6 +324,36 @@ class BaseAgent(ABC):
         self._status = AgentState.ERROR
         await self._log_activity("Error occurred", error)
 
+    @staticmethod
+    def _clean_code_response(response: str, language: str = "") -> str:
+        """
+        Clean markdown code blocks from an AI response.
+
+        Args:
+            response: The raw AI response that may contain code blocks.
+            language: Optional language hint for the code block.
+
+        Returns:
+            str: The cleaned code without markdown formatting.
+        """
+        clean = response.strip()
+        # Remove language-specific markdown code blocks
+        if language:
+            prefix = f"```{language}"
+            if clean.startswith(prefix):
+                clean = clean[len(prefix):]
+        # Remove generic markdown code blocks
+        if clean.startswith("```"):
+            # Find the first newline to skip the language tag if any
+            first_newline = clean.find("\n")
+            if first_newline != -1:
+                clean = clean[first_newline + 1:]
+            else:
+                clean = clean[3:]
+        if clean.endswith("```"):
+            clean = clean[:-3]
+        return clean.strip()
+
     def __repr__(self) -> str:
         """Return a string representation of the agent."""
         return (

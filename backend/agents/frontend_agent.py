@@ -185,14 +185,7 @@ Return only the HTML code, no explanations."""
             html = await self.generate_code(prompt, language="html")
 
             # Clean up the response
-            html = html.strip()
-            if html.startswith("```html"):
-                html = html[7:]
-            if html.startswith("```"):
-                html = html[3:]
-            if html.endswith("```"):
-                html = html[:-3]
-            html = html.strip()
+            html = self._clean_code_response(html, "html")
 
             self._generated_files["index.html"] = html
 
@@ -273,14 +266,7 @@ Return only the CSS code, no explanations."""
             css = await self.generate_code(prompt, language="css")
 
             # Clean up the response
-            css = css.strip()
-            if css.startswith("```css"):
-                css = css[6:]
-            if css.startswith("```"):
-                css = css[3:]
-            if css.endswith("```"):
-                css = css[:-3]
-            css = css.strip()
+            css = self._clean_code_response(css, "css")
 
             self._generated_files["styles.css"] = css
 
@@ -396,16 +382,7 @@ Return only the JavaScript code, no explanations."""
             js = await self.generate_code(prompt, language="javascript")
 
             # Clean up the response
-            js = js.strip()
-            if js.startswith("```javascript"):
-                js = js[13:]
-            if js.startswith("```js"):
-                js = js[5:]
-            if js.startswith("```"):
-                js = js[3:]
-            if js.endswith("```"):
-                js = js[:-3]
-            js = js.strip()
+            js = self._clean_code_response(js, "javascript")
 
             self._generated_files["script.js"] = js
 
@@ -486,10 +463,7 @@ Return only the JavaScript/JSX code, no explanations."""
             component = await self.generate_code(prompt, language="javascript")
 
             # Clean up the response
-            component = component.strip()
-            if component.startswith("```"):
-                lines = component.split("\n")
-                component = "\n".join(lines[1:-1])
+            component = self._clean_code_response(component, "javascript")
 
             self._generated_files[f"{component_name}.jsx"] = component
             self._component_registry[component_name] = {

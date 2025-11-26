@@ -160,12 +160,27 @@ class ProviderManager:
                     provider=provider,
                     retryable=False,
                 )
+            if not client.is_available():
+                raise AIClientError(
+                    f"Provider '{provider}' is not properly configured",
+                    provider=provider,
+                    retryable=False,
+                )
             result = await client.generate(prompt, system_prompt, **kwargs)
             return result, provider
 
         # Try providers in priority order
         errors = []
-        providers_to_try = self.priority_order if fallback else [self.default_provider]
+        if fallback:
+            providers_to_try = self.priority_order
+        elif self.default_provider:
+            providers_to_try = [self.default_provider]
+        else:
+            raise AIClientError(
+                "No default provider configured",
+                provider="none",
+                retryable=False,
+            )
 
         for provider_name in providers_to_try:
             if provider_name not in self.providers:
@@ -233,12 +248,27 @@ class ProviderManager:
                     provider=provider,
                     retryable=False,
                 )
+            if not client.is_available():
+                raise AIClientError(
+                    f"Provider '{provider}' is not properly configured",
+                    provider=provider,
+                    retryable=False,
+                )
             result = await client.generate_code(prompt, language, **kwargs)
             return result, provider
 
         # Try providers in priority order
         errors = []
-        providers_to_try = self.priority_order if fallback else [self.default_provider]
+        if fallback:
+            providers_to_try = self.priority_order
+        elif self.default_provider:
+            providers_to_try = [self.default_provider]
+        else:
+            raise AIClientError(
+                "No default provider configured",
+                provider="none",
+                retryable=False,
+            )
 
         for provider_name in providers_to_try:
             if provider_name not in self.providers:
@@ -281,4 +311,7 @@ class ProviderManager:
     def __repr__(self) -> str:
         """Return a string representation of the manager."""
         available = self.get_available_providers()
-        return f"ProviderManager(providers={available}, default={self.default_provider})"
+        return (
+            f"ProviderManager(providers={available}, "
+            f"default={self.default_provider})"
+        )

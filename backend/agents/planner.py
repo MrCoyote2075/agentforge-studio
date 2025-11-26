@@ -199,14 +199,7 @@ Return only valid JSON, no additional text or markdown formatting."""
             response = await self.get_ai_response(prompt)
 
             # Clean up response - remove markdown code blocks if present
-            clean_response = response.strip()
-            if clean_response.startswith("```json"):
-                clean_response = clean_response[7:]
-            if clean_response.startswith("```"):
-                clean_response = clean_response[3:]
-            if clean_response.endswith("```"):
-                clean_response = clean_response[:-3]
-            clean_response = clean_response.strip()
+            clean_response = self._clean_code_response(response, "json")
 
             # Parse JSON
             try:
@@ -284,10 +277,7 @@ Return only valid JSON."""
             response = await self.get_ai_response(prompt)
 
             # Clean and parse
-            clean_response = response.strip()
-            if clean_response.startswith("```"):
-                lines = clean_response.split("\n")
-                clean_response = "\n".join(lines[1:-1])
+            clean_response = self._clean_code_response(response, "json")
 
             try:
                 structure = json.loads(clean_response)
@@ -368,10 +358,7 @@ Return only valid JSON array."""
             response = await self.get_ai_response(prompt)
 
             # Clean and parse
-            clean_response = response.strip()
-            if clean_response.startswith("```"):
-                lines = clean_response.split("\n")
-                clean_response = "\n".join(lines[1:-1])
+            clean_response = self._clean_code_response(response, "json")
 
             try:
                 task_list = json.loads(clean_response)

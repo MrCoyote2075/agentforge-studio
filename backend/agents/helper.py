@@ -199,14 +199,7 @@ Make it clear, well-formatted, and professional."""
             readme = await self.get_ai_response(prompt)
 
             # Clean up any markdown code blocks
-            readme = readme.strip()
-            if readme.startswith("```markdown"):
-                readme = readme[11:]
-            if readme.startswith("```"):
-                readme = readme[3:]
-            if readme.endswith("```"):
-                readme = readme[:-3]
-            readme = readme.strip()
+            readme = self._clean_code_response(readme, "markdown")
 
             self._generated_docs["README.md"] = readme
 
@@ -303,10 +296,7 @@ Format as Markdown."""
             docs = await self.get_ai_response(prompt)
 
             # Clean up
-            docs = docs.strip()
-            if docs.startswith("```"):
-                lines = docs.split("\n")
-                docs = "\n".join(lines[1:-1])
+            docs = self._clean_code_response(docs, "markdown")
 
             self._generated_docs[f"{doc_type}_docs.md"] = docs
 
@@ -447,10 +437,7 @@ Return only the formatted code, no explanations."""
             formatted = await self.get_ai_response(prompt)
 
             # Clean up
-            formatted = formatted.strip()
-            if formatted.startswith("```"):
-                lines = formatted.split("\n")
-                formatted = "\n".join(lines[1:-1])
+            formatted = self._clean_code_response(formatted, language)
 
             await self._set_idle()
             return formatted
@@ -488,10 +475,7 @@ Return only the gitignore content, no explanations."""
             gitignore = await self.get_ai_response(prompt)
 
             # Clean up
-            gitignore = gitignore.strip()
-            if gitignore.startswith("```"):
-                lines = gitignore.split("\n")
-                gitignore = "\n".join(lines[1:-1])
+            gitignore = self._clean_code_response(gitignore, "gitignore")
 
             self._generated_docs[".gitignore"] = gitignore
 
