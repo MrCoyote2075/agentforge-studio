@@ -26,6 +26,9 @@ from backend.models.project import (
     Project as WfProject,
 )
 
+# Maximum length for response content truncation
+MAX_RESPONSE_LENGTH = 500
+
 
 class Orchestrator:
     """
@@ -153,7 +156,7 @@ class Orchestrator:
                 description=initial_message[:200],
                 stage=ProjectStage.INITIALIZED,
             )
-            self.project_manager._projects[project_id] = pm_project
+            self.project_manager.store_project(pm_project)
 
             # Store initial requirements
             requirements = ProjectRequirements(
@@ -435,7 +438,11 @@ class Orchestrator:
                 return {
                     "task_id": task.id,
                     "status": "completed",
-                    "response": response.content[:500] if response.content else "",
+                    "response": (
+                        response.content[:MAX_RESPONSE_LENGTH]
+                        if response.content
+                        else ""
+                    ),
                 }
 
             except Exception as e:
@@ -530,7 +537,7 @@ class Orchestrator:
 
                 # Mark file as reviewed
                 self.project_manager.mark_file_reviewed(
-                    project_id, file.path, response.content[:500]
+                    project_id, file.path, response.content[:MAX_RESPONSE_LENGTH]
                 )
 
                 review_results.append({
@@ -618,7 +625,7 @@ class Orchestrator:
                 "project_id": project_id,
                 "stage": ProjectStage.READY_FOR_DELIVERY.value,
                 "status": "passed",
-                "results": response.content[:500],
+                "results": response.content[:MAX_RESPONSE_LENGTH],
             }
 
         except Exception as e:

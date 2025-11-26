@@ -71,6 +71,16 @@ class ProjectManager:
         self.logger.info(f"Created project '{name}' with ID {project_id}")
         return project
 
+    def store_project(self, project: Project) -> None:
+        """
+        Store an existing project instance.
+
+        Args:
+            project: Project instance to store.
+        """
+        self._projects[project.id] = project
+        self.logger.info(f"Stored project '{project.name}' with ID {project.id}")
+
     def get_project(self, project_id: str) -> Project | None:
         """
         Get a project by ID.

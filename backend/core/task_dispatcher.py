@@ -155,17 +155,16 @@ class TaskDispatcher:
             ready_tasks = []
             for task_id, task in list(pending_tasks.items()):
                 deps = task.plan_task.dependencies
+                # Check if all dependencies exist and are completed
                 all_deps_complete = all(
-                    tasks_dict.get(dep_id, DispatchedTask(
-                        PlanTask(description="", assigned_to="")
-                    )).state == DispatchedTaskState.COMPLETED
+                    dep_id in tasks_dict
+                    and tasks_dict[dep_id].state == DispatchedTaskState.COMPLETED
                     for dep_id in deps
                 )
-                # Also check that no dependency has failed
+                # Check if any dependency has failed
                 any_dep_failed = any(
-                    tasks_dict.get(dep_id, DispatchedTask(
-                        PlanTask(description="", assigned_to="")
-                    )).state == DispatchedTaskState.FAILED
+                    dep_id in tasks_dict
+                    and tasks_dict[dep_id].state == DispatchedTaskState.FAILED
                     for dep_id in deps
                 )
 
