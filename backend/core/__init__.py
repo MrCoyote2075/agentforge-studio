@@ -7,6 +7,7 @@ for the AgentForge Studio system.
 
 from backend.core import ai_clients
 from backend.core.agent_registry import AgentRegistry
+from backend.core.api_key_manager import APIKeyManager, KeyStats, RotationStrategy
 from backend.core.config import Settings, get_settings
 from backend.core.event_emitter import EventEmitter
 from backend.core.file_lock_manager import (
@@ -64,6 +65,10 @@ __all__ = [
     "ApplicationMemory",
     "MemoryManager",
     "ContextBuilder",
+    # API Key Management
+    "APIKeyManager",
+    "RotationStrategy",
+    "KeyStats",
     # Other
     "WorkspaceManager",
     "GitManager",
