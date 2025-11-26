@@ -6,9 +6,10 @@ including HTML, CSS, JavaScript, and React components.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from backend.agents.base_agent import BaseAgent, AgentState
+from backend.agents.base_agent import BaseAgent
+from backend.core.ai_clients.base_client import AIClientError
 from backend.models.schemas import Message
 
 
@@ -33,7 +34,7 @@ class FrontendAgent(BaseAgent):
         self,
         name: str = "FrontendAgent",
         model: str = "gemini-pro",
-        message_bus: Optional[Any] = None,
+        message_bus: Any | None = None,
     ) -> None:
         """
         Initialize the Frontend Agent.
@@ -44,8 +45,8 @@ class FrontendAgent(BaseAgent):
             message_bus: Reference to the message bus for communication.
         """
         super().__init__(name=name, model=model, message_bus=message_bus)
-        self._generated_files: Dict[str, str] = {}
-        self._component_registry: Dict[str, Dict[str, Any]] = {}
+        self._generated_files: dict[str, str] = {}
+        self._component_registry: dict[str, dict[str, Any]] = {}
 
     async def process(self, message: Message) -> Message:
         """
@@ -59,17 +60,33 @@ class FrontendAgent(BaseAgent):
         """
         await self._set_busy(f"Building UI: {message.content[:50]}")
 
-        # TODO: Implement AI-powered frontend generation
-        # 1. Parse requirements
-        # 2. Generate HTML structure
-        # 3. Create CSS styles
-        # 4. Add JavaScript interactivity
-        # 5. Create React components if needed
+        try:
+            # Parse the request and generate appropriate code
+            specs = {"description": message.content}
 
-        response_content = (
-            f"Frontend development in progress: {message.content[:50]}... "
-            "UI components are being created."
-        )
+            # Generate HTML, CSS, and JS
+            html = await self.generate_html(specs)
+            css = await self.generate_css(specs)
+            js = await self.generate_javascript(specs)
+
+            response_content = (
+                f"Frontend development complete! Generated:\n"
+                f"- index.html ({len(html)} chars)\n"
+                f"- styles.css ({len(css)} chars)\n"
+                f"- script.js ({len(js)} chars)"
+            )
+
+        except AIClientError as e:
+            self.logger.error(f"AI frontend generation failed: {e}")
+            response_content = (
+                "I encountered an issue generating the frontend code. "
+                "Please provide more specific requirements."
+            )
+            await self._set_error(str(e))
+        except Exception as e:
+            self.logger.error(f"Unexpected frontend error: {e}")
+            response_content = f"Frontend generation error: {str(e)}"
+            await self._set_error(str(e))
 
         await self._set_idle()
 
@@ -125,7 +142,7 @@ class FrontendAgent(BaseAgent):
             f"From: {message.from_agent}",
         )
 
-    async def generate_html(self, specs: Dict[str, Any]) -> str:
+    async def generate_html(self, specs: dict[str, Any]) -> str:
         """
         Generate HTML based on specifications.
 
@@ -137,25 +154,88 @@ class FrontendAgent(BaseAgent):
         """
         await self._set_busy("Generating HTML")
 
-        # TODO: Implement AI-powered HTML generation
-        html = """<!DOCTYPE html>
+        try:
+            description = specs.get("description", "a modern web page")
+            pages = specs.get("pages", [])
+            components = specs.get("components", [])
+
+            page_info = ""
+            if pages:
+                page_names = [
+                    p.get("name", p) if isinstance(p, dict) else p for p in pages
+                ]
+                page_info = f"Pages to include: {', '.join(page_names)}\n"
+            if components:
+                page_info += f"Components: {', '.join(components)}\n"
+
+            prompt = f"""Create a complete, production-ready HTML file for:
+{description}
+
+{page_info}
+Requirements:
+- Use semantic HTML5 elements (header, nav, main, section, article, footer)
+- Include proper meta tags for SEO and responsive design
+- Add ARIA attributes for accessibility
+- Link to external CSS (css/styles.css) and JS (js/script.js)
+- Include placeholder content that matches the site purpose
+- Make it responsive-ready
+
+Return only the HTML code, no explanations."""
+
+            html = await self.generate_code(prompt, language="html")
+
+            # Clean up the response
+            html = html.strip()
+            if html.startswith("```html"):
+                html = html[7:]
+            if html.startswith("```"):
+                html = html[3:]
+            if html.endswith("```"):
+                html = html[:-3]
+            html = html.strip()
+
+            self._generated_files["index.html"] = html
+
+        except Exception as e:
+            self.logger.error(f"HTML generation failed: {e}")
+            # Return a basic template as fallback
+            html = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Generated web page">
     <title>Generated Page</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
-    <!-- Content will be generated based on specs -->
+    <header role="banner">
+        <nav role="navigation" aria-label="Main navigation">
+            <ul>
+                <li><a href="#home">Home</a></li>
+                <li><a href="#about">About</a></li>
+                <li><a href="#contact">Contact</a></li>
+            </ul>
+        </nav>
+    </header>
+    <main role="main">
+        <section id="home">
+            <h1>Welcome</h1>
+            <p>Content will be generated based on specifications.</p>
+        </section>
+    </main>
+    <footer role="contentinfo">
+        <p>&copy; 2024 Generated Site</p>
+    </footer>
+    <script src="js/script.js" defer></script>
 </body>
 </html>"""
+            self._generated_files["index.html"] = html
 
-        self._generated_files["index.html"] = html
         await self._set_idle()
         return html
 
-    async def generate_css(self, specs: Dict[str, Any]) -> str:
+    async def generate_css(self, specs: dict[str, Any]) -> str:
         """
         Generate CSS styles based on specifications.
 
@@ -167,8 +247,55 @@ class FrontendAgent(BaseAgent):
         """
         await self._set_busy("Generating CSS")
 
-        # TODO: Implement AI-powered CSS generation
-        css = """/* Generated styles */
+        try:
+            description = specs.get("description", "a modern web page")
+            design = specs.get("design_guidelines", {})
+            color_scheme = design.get("color_scheme", "modern and professional")
+            typography = design.get("typography", "clean system fonts")
+
+            prompt = f"""Create complete, production-ready CSS for: {description}
+
+Design guidelines:
+- Color scheme: {color_scheme}
+- Typography: {typography}
+
+Requirements:
+- Use CSS custom properties (variables) for colors and spacing
+- Include a CSS reset/normalize section
+- Create responsive styles (mobile-first approach)
+- Add smooth transitions for interactive elements
+- Include hover states for buttons and links
+- Make it accessible (focus states, readable text)
+- Use flexbox and/or grid for layouts
+
+Return only the CSS code, no explanations."""
+
+            css = await self.generate_code(prompt, language="css")
+
+            # Clean up the response
+            css = css.strip()
+            if css.startswith("```css"):
+                css = css[6:]
+            if css.startswith("```"):
+                css = css[3:]
+            if css.endswith("```"):
+                css = css[:-3]
+            css = css.strip()
+
+            self._generated_files["styles.css"] = css
+
+        except Exception as e:
+            self.logger.error(f"CSS generation failed: {e}")
+            # Return basic styles as fallback
+            css = """/* Generated styles */
+:root {
+    --primary-color: #3498db;
+    --secondary-color: #2c3e50;
+    --text-color: #333;
+    --bg-color: #fff;
+    --spacing-unit: 1rem;
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -176,16 +303,58 @@ class FrontendAgent(BaseAgent):
 }
 
 body {
-    font-family: system-ui, -apple-system, sans-serif;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
     line-height: 1.6;
+    color: var(--text-color);
+    background-color: var(--bg-color);
+}
+
+header {
+    background-color: var(--secondary-color);
+    padding: var(--spacing-unit);
+}
+
+nav ul {
+    display: flex;
+    list-style: none;
+    gap: var(--spacing-unit);
+}
+
+nav a {
+    color: #fff;
+    text-decoration: none;
+    transition: opacity 0.3s ease;
+}
+
+nav a:hover {
+    opacity: 0.8;
+}
+
+main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: calc(var(--spacing-unit) * 2);
+}
+
+footer {
+    background-color: var(--secondary-color);
+    color: #fff;
+    text-align: center;
+    padding: var(--spacing-unit);
+}
+
+@media (max-width: 768px) {
+    nav ul {
+        flex-direction: column;
+    }
 }
 """
+            self._generated_files["styles.css"] = css
 
-        self._generated_files["styles.css"] = css
         await self._set_idle()
         return css
 
-    async def generate_javascript(self, specs: Dict[str, Any]) -> str:
+    async def generate_javascript(self, specs: dict[str, Any]) -> str:
         """
         Generate JavaScript based on specifications.
 
@@ -197,21 +366,90 @@ body {
         """
         await self._set_busy("Generating JavaScript")
 
-        # TODO: Implement AI-powered JavaScript generation
-        js = """// Generated JavaScript
+        try:
+            description = specs.get("description", "a modern web page")
+            features = specs.get("features", [])
+
+            feature_list = ""
+            if features:
+                feature_list = "Required features:\n" + "\n".join(
+                    f"- {f.get('name', f) if isinstance(f, dict) else f}"
+                    for f in features
+                )
+
+            prompt = f"""Create production-ready JavaScript for: {description}
+
+{feature_list}
+
+Requirements:
+- Use modern ES6+ syntax
+- Add DOMContentLoaded event listener
+- Include mobile navigation toggle functionality
+- Add smooth scrolling for anchor links
+- Include form validation if forms are present
+- Add any interactive features mentioned
+- Include helpful comments
+- Handle errors gracefully
+
+Return only the JavaScript code, no explanations."""
+
+            js = await self.generate_code(prompt, language="javascript")
+
+            # Clean up the response
+            js = js.strip()
+            if js.startswith("```javascript"):
+                js = js[13:]
+            if js.startswith("```js"):
+                js = js[5:]
+            if js.startswith("```"):
+                js = js[3:]
+            if js.endswith("```"):
+                js = js[:-3]
+            js = js.strip()
+
+            self._generated_files["script.js"] = js
+
+        except Exception as e:
+            self.logger.error(f"JavaScript generation failed: {e}")
+            # Return basic JS as fallback
+            js = """// Generated JavaScript
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('Page loaded');
+    console.log('Page loaded successfully');
+
+    // Mobile navigation toggle
+    const navToggle = document.querySelector('.nav-toggle');
+    const navMenu = document.querySelector('nav ul');
+
+    if (navToggle && navMenu) {
+        navToggle.addEventListener('click', () => {
+            navMenu.classList.toggle('active');
+        });
+    }
+
+    // Smooth scrolling for anchor links
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener('click', function (e) {
+            e.preventDefault();
+            const target = document.querySelector(this.getAttribute('href'));
+            if (target) {
+                target.scrollIntoView({
+                    behavior: 'smooth'
+                });
+            }
+        });
+    });
 });
 """
+            self._generated_files["script.js"] = js
 
-        self._generated_files["script.js"] = js
         await self._set_idle()
         return js
 
     async def generate_react_component(
         self,
         component_name: str,
-        props: List[str],
+        props: list[str],
+        description: str | None = None,
     ) -> str:
         """
         Generate a React component.
@@ -219,17 +457,57 @@ document.addEventListener('DOMContentLoaded', () => {
         Args:
             component_name: Name of the component.
             props: List of prop names.
+            description: Optional description of the component.
 
         Returns:
             str: Generated React component code.
         """
         await self._set_busy(f"Generating React component: {component_name}")
 
-        # TODO: Implement AI-powered React component generation
-        props_str = ", ".join(props) if props else ""
-        component = f"""import React from 'react';
+        try:
+            props_info = f"Props: {', '.join(props)}" if props else "No props"
+            desc = description or f"A {component_name} component"
 
-const {component_name} = ({{{ props_str }}}) => {{
+            prompt = f"""Create a React functional component:
+
+Component name: {component_name}
+{props_info}
+Description: {desc}
+
+Requirements:
+- Use modern React (functional component with hooks)
+- Include PropTypes or TypeScript types
+- Add helpful JSDoc comments
+- Make it reusable and well-structured
+- Include basic styling or className props
+
+Return only the JavaScript/JSX code, no explanations."""
+
+            component = await self.generate_code(prompt, language="javascript")
+
+            # Clean up the response
+            component = component.strip()
+            if component.startswith("```"):
+                lines = component.split("\n")
+                component = "\n".join(lines[1:-1])
+
+            self._generated_files[f"{component_name}.jsx"] = component
+            self._component_registry[component_name] = {
+                "props": props,
+                "description": desc,
+            }
+
+        except Exception as e:
+            self.logger.error(f"React component generation failed: {e}")
+            props_str = ", ".join(props) if props else ""
+            component = f"""import React from 'react';
+import PropTypes from 'prop-types';
+
+/**
+ * {component_name} component
+ * {description or 'A reusable React component'}
+ */
+const {component_name} = ({{{ {props_str} }}}) => {{
     return (
         <div className="{component_name.lower()}">
             {{/* Component content */}}
@@ -237,15 +515,19 @@ const {component_name} = ({{{ props_str }}}) => {{
     );
 }};
 
+{component_name}.propTypes = {{
+    {chr(10).join(f'    {prop}: PropTypes.any,' for prop in props) if props else ''}
+}};
+
 export default {component_name};
 """
+            self._generated_files[f"{component_name}.jsx"] = component
+            self._component_registry[component_name] = {"props": props}
 
-        self._generated_files[f"{component_name}.jsx"] = component
-        self._component_registry[component_name] = {"props": props}
         await self._set_idle()
         return component
 
-    async def get_generated_files(self) -> Dict[str, str]:
+    async def get_generated_files(self) -> dict[str, str]:
         """
         Get all files generated by this agent.
 
@@ -253,3 +535,8 @@ export default {component_name};
             Dict mapping filenames to content.
         """
         return self._generated_files.copy()
+
+    def clear_generated_files(self) -> None:
+        """Clear all generated files."""
+        self._generated_files = {}
+        self._component_registry = {}

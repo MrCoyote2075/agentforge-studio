@@ -6,14 +6,18 @@ chat interactions, and file operations.
 """
 
 import io
+import logging
 import zipfile
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
+from backend.agents.intermediator import Intermediator
+from backend.core.git_manager import GitManager
+from backend.core.workspace_manager import WorkspaceManager
 from backend.models.schemas import (
     ChatMessage,
     ChatRequest,
@@ -22,21 +26,20 @@ from backend.models.schemas import (
     ProjectCreate,
     ProjectStatus,
 )
-from backend.core.workspace_manager import WorkspaceManager
-from backend.core.git_manager import GitManager
-
 
 router = APIRouter(tags=["api"])
+logger = logging.getLogger(__name__)
 
 # In-memory storage for demo purposes
 # TODO: Replace with proper database
-_projects: Dict[str, Project] = {}
-_chat_history: Dict[str, List[ChatMessage]] = {}
+_projects: dict[str, Project] = {}
+_chat_history: dict[str, list[ChatMessage]] = {}
 
 
 # Dependency instances
-_workspace_manager: Optional[WorkspaceManager] = None
-_git_manager: Optional[GitManager] = None
+_workspace_manager: WorkspaceManager | None = None
+_git_manager: GitManager | None = None
+_intermediator: Intermediator | None = None
 
 
 def get_workspace_manager() -> WorkspaceManager:
@@ -53,6 +56,14 @@ def get_git_manager() -> GitManager:
     if _git_manager is None:
         _git_manager = GitManager()
     return _git_manager
+
+
+def get_intermediator() -> Intermediator:
+    """Get or create the Intermediator agent instance."""
+    global _intermediator
+    if _intermediator is None:
+        _intermediator = Intermediator()
+    return _intermediator
 
 
 # Chat endpoints
@@ -85,12 +96,19 @@ async def chat(request: ChatRequest) -> ChatResponse:
             _chat_history[request.project_id] = []
         _chat_history[request.project_id].append(user_message)
 
-    # TODO: Forward to Intermediator agent
-    # For now, return a placeholder response
-    response_content = (
-        f"I received your message: '{request.message[:100]}...'. "
-        "The agent team is being coordinated to help you."
-    )
+    # Get response from Intermediator agent
+    try:
+        intermediator = get_intermediator()
+        response_content = await intermediator.chat(
+            user_message=request.message,
+            project_id=request.project_id,
+        )
+    except Exception as e:
+        logger.error(f"Chat processing error: {e}")
+        response_content = (
+            "I apologize, but I'm having trouble processing your request. "
+            "Please try again in a moment."
+        )
 
     assistant_message = ChatMessage(
         content=response_content,
@@ -107,11 +125,11 @@ async def chat(request: ChatRequest) -> ChatResponse:
     )
 
 
-@router.get("/chat/{project_id}/history", response_model=List[ChatMessage])
+@router.get("/chat/{project_id}/history", response_model=list[ChatMessage])
 async def get_chat_history(
     project_id: str,
     limit: int = Query(default=50, ge=1, le=200),
-) -> List[ChatMessage]:
+) -> list[ChatMessage]:
     """
     Get chat history for a project.
 
@@ -133,8 +151,8 @@ async def get_chat_history(
 
 
 # Project endpoints
-@router.get("/projects", response_model=List[Project])
-async def list_projects() -> List[Project]:
+@router.get("/projects", response_model=list[Project])
+async def list_projects() -> list[Project]:
     """
     List all projects.
 
@@ -298,7 +316,7 @@ async def list_project_files(
     project_id: str,
     path: str = "",
     recursive: bool = False,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     List files in a project.
 
@@ -322,7 +340,7 @@ async def list_project_files(
 
 
 @router.get("/projects/{project_id}/files/{file_path:path}")
-async def get_project_file(project_id: str, file_path: str) -> Dict[str, str]:
+async def get_project_file(project_id: str, file_path: str) -> dict[str, str]:
     """
     Get the content of a file.
 
@@ -350,7 +368,7 @@ async def get_project_file(project_id: str, file_path: str) -> Dict[str, str]:
 
 # Git endpoints
 @router.get("/projects/{project_id}/git/status")
-async def get_git_status(project_id: str) -> Dict[str, Any]:
+async def get_git_status(project_id: str) -> dict[str, Any]:
     """
     Get Git status for a project.
 
@@ -375,7 +393,7 @@ async def get_git_status(project_id: str) -> Dict[str, Any]:
 async def get_git_log(
     project_id: str,
     limit: int = Query(default=10, ge=1, le=100),
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Get Git commit log for a project.
 

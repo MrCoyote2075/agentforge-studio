@@ -7,11 +7,11 @@ and file locking for the generated project workspaces.
 
 import asyncio
 import logging
-import os
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import aiofiles
 import aiofiles.os
 
@@ -27,7 +27,7 @@ class FileLock:
 
     def __init__(self) -> None:
         """Initialize the file lock manager."""
-        self._locks: Dict[str, asyncio.Lock] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
 
     def get_lock(self, file_path: str) -> asyncio.Lock:
         """
@@ -71,7 +71,7 @@ class WorkspaceManager:
         >>> await manager.write_file("my-project", "index.html", "<html>...")
     """
 
-    def __init__(self, workspace_path: Optional[Path] = None) -> None:
+    def __init__(self, workspace_path: Path | None = None) -> None:
         """
         Initialize the workspace manager.
 
@@ -155,7 +155,7 @@ class WorkspaceManager:
         project_path = self._workspace_path / project_id
         return await aiofiles.os.path.exists(project_path)
 
-    async def list_projects(self) -> List[str]:
+    async def list_projects(self) -> list[str]:
         """
         List all project workspaces.
 
@@ -233,7 +233,7 @@ class WorkspaceManager:
         if not await aiofiles.os.path.exists(full_path):
             raise FileNotFoundError(f"File not found: {file_path}")
 
-        async with aiofiles.open(full_path, "r", encoding="utf-8") as f:
+        async with aiofiles.open(full_path, encoding="utf-8") as f:
             content = await f.read()
 
         return content
@@ -281,7 +281,7 @@ class WorkspaceManager:
         project_id: str,
         directory: str = "",
         recursive: bool = False,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         List files in a project directory.
 

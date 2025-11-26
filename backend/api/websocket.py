@@ -5,15 +5,14 @@ This module implements WebSocket support for real-time
 communication between clients and the agent system.
 """
 
-import asyncio
 import json
 import logging
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-
 
 websocket_router = APIRouter(tags=["websocket"])
 
@@ -32,7 +31,7 @@ class WebSocketConnection:
     def __init__(
         self,
         websocket: WebSocket,
-        project_id: Optional[str] = None,
+        project_id: str | None = None,
     ) -> None:
         """
         Initialize a WebSocket connection.
@@ -46,7 +45,7 @@ class WebSocketConnection:
         self.project_id = project_id
         self.connected_at = datetime.utcnow()
 
-    async def send_json(self, data: Dict[str, Any]) -> None:
+    async def send_json(self, data: dict[str, Any]) -> None:
         """
         Send JSON data to the client.
 
@@ -84,9 +83,9 @@ class WebSocketManager:
 
     def __init__(self) -> None:
         """Initialize the WebSocket manager."""
-        self._connections: Dict[str, WebSocketConnection] = {}
-        self._project_subscriptions: Dict[str, Set[str]] = {}
-        self._message_handlers: Dict[str, Callable] = {}
+        self._connections: dict[str, WebSocketConnection] = {}
+        self._project_subscriptions: dict[str, set[str]] = {}
+        self._message_handlers: dict[str, Callable] = {}
         self.logger = logging.getLogger("websocket_manager")
 
     @property
@@ -97,7 +96,7 @@ class WebSocketManager:
     async def connect(
         self,
         websocket: WebSocket,
-        project_id: Optional[str] = None,
+        project_id: str | None = None,
     ) -> WebSocketConnection:
         """
         Accept a new WebSocket connection.
@@ -218,7 +217,7 @@ class WebSocketManager:
 
         return True
 
-    async def broadcast(self, message: Dict[str, Any]) -> int:
+    async def broadcast(self, message: dict[str, Any]) -> int:
         """
         Broadcast a message to all connected clients.
 
@@ -248,7 +247,7 @@ class WebSocketManager:
     async def broadcast_to_project(
         self,
         project_id: str,
-        message: Dict[str, Any],
+        message: dict[str, Any],
     ) -> int:
         """
         Broadcast a message to all clients subscribed to a project.
@@ -287,7 +286,7 @@ class WebSocketManager:
     async def send_to_connection(
         self,
         connection_id: str,
-        message: Dict[str, Any],
+        message: dict[str, Any],
     ) -> bool:
         """
         Send a message to a specific connection.
@@ -314,7 +313,7 @@ class WebSocketManager:
     def register_handler(
         self,
         message_type: str,
-        handler: Optional[Callable[[str, Dict[str, Any]], Any]] = None,
+        handler: Callable[[str, dict[str, Any]], Any] | None = None,
     ) -> Callable:
         """
         Register a handler for a message type.
@@ -341,8 +340,8 @@ class WebSocketManager:
     async def handle_message(
         self,
         connection_id: str,
-        message: Dict[str, Any],
-    ) -> Optional[Dict[str, Any]]:
+        message: dict[str, Any],
+    ) -> dict[str, Any] | None:
         """
         Handle an incoming message from a client.
 
@@ -447,7 +446,7 @@ async def project_websocket_endpoint(
 
 # Register default message handlers
 @ws_manager.register_handler("ping")
-async def handle_ping(connection_id: str, message: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_ping(connection_id: str, message: dict[str, Any]) -> dict[str, Any]:
     """Handle ping messages."""
     return {"type": "pong", "timestamp": datetime.utcnow().isoformat()}
 
@@ -455,8 +454,8 @@ async def handle_ping(connection_id: str, message: Dict[str, Any]) -> Dict[str, 
 @ws_manager.register_handler("subscribe")
 async def handle_subscribe(
     connection_id: str,
-    message: Dict[str, Any],
-) -> Dict[str, Any]:
+    message: dict[str, Any],
+) -> dict[str, Any]:
     """Handle project subscription requests."""
     project_id = message.get("project_id")
     if not project_id:
@@ -472,8 +471,8 @@ async def handle_subscribe(
 @ws_manager.register_handler("chat")
 async def handle_chat(
     connection_id: str,
-    message: Dict[str, Any],
-) -> Dict[str, Any]:
+    message: dict[str, Any],
+) -> dict[str, Any]:
     """Handle chat messages through WebSocket."""
     content = message.get("content", "")
     project_id = message.get("project_id")

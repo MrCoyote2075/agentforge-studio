@@ -6,10 +6,12 @@ project roadmap creation. It breaks down high-level requirements
 into detailed technical specifications and task sequences.
 """
 
+import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from backend.agents.base_agent import BaseAgent, AgentState
+from backend.agents.base_agent import BaseAgent
+from backend.core.ai_clients.base_client import AIClientError
 from backend.models.schemas import Message, Task
 
 
@@ -34,7 +36,7 @@ class Planner(BaseAgent):
         self,
         name: str = "Planner",
         model: str = "gemini-pro",
-        message_bus: Optional[Any] = None,
+        message_bus: Any | None = None,
     ) -> None:
         """
         Initialize the Planner agent.
@@ -45,8 +47,8 @@ class Planner(BaseAgent):
             message_bus: Reference to the message bus for communication.
         """
         super().__init__(name=name, model=model, message_bus=message_bus)
-        self._project_specs: Dict[str, Any] = {}
-        self._file_structure: Dict[str, List[str]] = {}
+        self._project_specs: dict[str, Any] = {}
+        self._file_structure: dict[str, list[str]] = {}
 
     async def process(self, message: Message) -> Message:
         """
@@ -60,17 +62,23 @@ class Planner(BaseAgent):
         """
         await self._set_busy(f"Planning: {message.content[:50]}")
 
-        # TODO: Implement AI-powered planning logic
-        # 1. Analyze requirements
-        # 2. Research best practices
-        # 3. Create technical specifications
-        # 4. Define file structure
-        # 5. Create implementation roadmap
+        try:
+            # Create specification from requirements
+            specs = await self.create_specification(message.content)
 
-        response_content = (
-            f"Planning complete for: {message.content[:50]}... "
-            "Technical specifications are ready."
-        )
+            response_content = json.dumps(specs, indent=2)
+
+        except AIClientError as e:
+            self.logger.error(f"AI planning failed: {e}")
+            response_content = (
+                "I encountered an issue while planning. "
+                "Please provide more details about the project requirements."
+            )
+            await self._set_error(str(e))
+        except Exception as e:
+            self.logger.error(f"Unexpected planning error: {e}")
+            response_content = f"Planning error: {str(e)}"
+            await self._set_error(str(e))
 
         await self._set_idle()
 
@@ -126,7 +134,7 @@ class Planner(BaseAgent):
             f"From: {message.from_agent}",
         )
 
-    async def create_specification(self, requirements: str) -> Dict[str, Any]:
+    async def create_specification(self, requirements: str) -> dict[str, Any]:
         """
         Create detailed technical specifications from requirements.
 
@@ -138,21 +146,108 @@ class Planner(BaseAgent):
         """
         await self._set_busy("Creating specifications")
 
-        # TODO: Implement AI-powered specification generation
-        specs = {
-            "requirements": requirements,
-            "technologies": [],
-            "components": [],
-            "data_models": [],
-            "api_endpoints": [],
-            "ui_pages": [],
-        }
+        try:
+            prompt = f"""Based on the following project requirements, create a detailed technical specification.
 
-        self._project_specs = specs
+Requirements:
+{requirements}
+
+Create a JSON specification with the following structure:
+{{
+    "project_name": "descriptive project name",
+    "description": "brief project description",
+    "technologies": ["HTML5", "CSS3", "JavaScript"],
+    "file_structure": {{
+        "root": ["index.html", "README.md"],
+        "css": ["styles.css"],
+        "js": ["script.js"],
+        "assets/images": []
+    }},
+    "pages": [
+        {{
+            "name": "Home",
+            "file": "index.html",
+            "description": "Main landing page",
+            "components": ["header", "hero", "features", "footer"]
+        }}
+    ],
+    "features": [
+        {{
+            "name": "Responsive Navigation",
+            "description": "Mobile-friendly navigation menu",
+            "priority": "high"
+        }}
+    ],
+    "design_guidelines": {{
+        "color_scheme": "professional blue and white",
+        "typography": "system fonts",
+        "layout": "clean and modern"
+    }},
+    "tasks": [
+        {{
+            "id": "task-1",
+            "description": "Create HTML structure",
+            "assigned_to": "FrontendAgent",
+            "dependencies": [],
+            "estimated_complexity": "medium"
+        }}
+    ]
+}}
+
+Return only valid JSON, no additional text or markdown formatting."""
+
+            response = await self.get_ai_response(prompt)
+
+            # Clean up response - remove markdown code blocks if present
+            clean_response = response.strip()
+            if clean_response.startswith("```json"):
+                clean_response = clean_response[7:]
+            if clean_response.startswith("```"):
+                clean_response = clean_response[3:]
+            if clean_response.endswith("```"):
+                clean_response = clean_response[:-3]
+            clean_response = clean_response.strip()
+
+            # Parse JSON
+            try:
+                specs = json.loads(clean_response)
+            except json.JSONDecodeError as e:
+                self.logger.warning(f"Failed to parse AI response as JSON: {e}")
+                specs = {
+                    "requirements": requirements,
+                    "technologies": ["HTML5", "CSS3", "JavaScript"],
+                    "components": [],
+                    "data_models": [],
+                    "api_endpoints": [],
+                    "ui_pages": [],
+                    "raw_response": response[:500],
+                    "parse_error": str(e),
+                }
+
+            self._project_specs = specs
+
+        except AIClientError as e:
+            self.logger.error(f"AI specification generation failed: {e}")
+            specs = {
+                "requirements": requirements,
+                "technologies": ["HTML5", "CSS3", "JavaScript"],
+                "components": [],
+                "error": str(e),
+            }
+        except Exception as e:
+            self.logger.error(f"Unexpected specification error: {e}")
+            specs = {
+                "requirements": requirements,
+                "technologies": [],
+                "error": str(e),
+            }
+
         await self._set_idle()
         return specs
 
-    async def define_file_structure(self, specs: Dict[str, Any]) -> Dict[str, List[str]]:
+    async def define_file_structure(
+        self, specs: dict[str, Any]
+    ) -> dict[str, list[str]]:
         """
         Define the project file structure based on specifications.
 
@@ -164,18 +259,59 @@ class Planner(BaseAgent):
         """
         await self._set_busy("Defining file structure")
 
-        # TODO: Implement AI-powered structure generation
-        structure = {
-            "src/": ["index.html", "styles.css", "script.js"],
-            "src/components/": [],
-            "src/assets/": [],
-        }
+        # If specs already contain file_structure, use it
+        if "file_structure" in specs:
+            self._file_structure = specs["file_structure"]
+            await self._set_idle()
+            return self._file_structure
 
-        self._file_structure = structure
+        try:
+            prompt = f"""Based on these project specifications, define the file structure.
+
+Specifications:
+{json.dumps(specs, indent=2)}
+
+Return a JSON object mapping directory paths to lists of files:
+{{
+    "root": ["index.html", "README.md"],
+    "css": ["styles.css", "responsive.css"],
+    "js": ["script.js", "utils.js"],
+    "assets/images": ["logo.png"]
+}}
+
+Return only valid JSON."""
+
+            response = await self.get_ai_response(prompt)
+
+            # Clean and parse
+            clean_response = response.strip()
+            if clean_response.startswith("```"):
+                lines = clean_response.split("\n")
+                clean_response = "\n".join(lines[1:-1])
+
+            try:
+                structure = json.loads(clean_response)
+            except json.JSONDecodeError:
+                structure = {
+                    "root": ["index.html", "README.md"],
+                    "css": ["styles.css"],
+                    "js": ["script.js"],
+                    "assets/images": [],
+                }
+
+            self._file_structure = structure
+
+        except Exception as e:
+            self.logger.error(f"Failed to define file structure: {e}")
+            structure = {
+                "root": ["index.html", "styles.css", "script.js"],
+                "assets": [],
+            }
+
         await self._set_idle()
         return structure
 
-    async def create_roadmap(self, specs: Dict[str, Any]) -> List[Task]:
+    async def create_roadmap(self, specs: dict[str, Any]) -> list[Task]:
         """
         Create an implementation roadmap from specifications.
 
@@ -187,13 +323,101 @@ class Planner(BaseAgent):
         """
         await self._set_busy("Creating roadmap")
 
-        # TODO: Implement AI-powered roadmap generation
-        tasks: List[Task] = []
+        tasks: list[Task] = []
+
+        # If specs contain tasks, convert them
+        if "tasks" in specs:
+            for task_data in specs["tasks"]:
+                task = Task(
+                    id=task_data.get("id", f"task-{len(tasks) + 1}"),
+                    description=task_data.get("description", ""),
+                    assigned_to=task_data.get("assigned_to"),
+                    dependencies=task_data.get("dependencies", []),
+                )
+                tasks.append(task)
+            await self._set_idle()
+            return tasks
+
+        try:
+            prompt = f"""Based on these specifications, create a task list for implementation.
+
+Specifications:
+{json.dumps(specs, indent=2)}
+
+Return a JSON array of tasks:
+[
+    {{
+        "id": "task-1",
+        "description": "Set up project structure and create base HTML file",
+        "assigned_to": "FrontendAgent",
+        "dependencies": [],
+        "estimated_complexity": "low"
+    }},
+    {{
+        "id": "task-2",
+        "description": "Create CSS styles",
+        "assigned_to": "FrontendAgent",
+        "dependencies": ["task-1"],
+        "estimated_complexity": "medium"
+    }}
+]
+
+Assign tasks to: FrontendAgent (HTML/CSS/JS), BackendAgent (APIs), Helper (docs)
+Return only valid JSON array."""
+
+            response = await self.get_ai_response(prompt)
+
+            # Clean and parse
+            clean_response = response.strip()
+            if clean_response.startswith("```"):
+                lines = clean_response.split("\n")
+                clean_response = "\n".join(lines[1:-1])
+
+            try:
+                task_list = json.loads(clean_response)
+                for task_data in task_list:
+                    task = Task(
+                        id=task_data.get("id", f"task-{len(tasks) + 1}"),
+                        description=task_data.get("description", ""),
+                        assigned_to=task_data.get("assigned_to"),
+                        dependencies=task_data.get("dependencies", []),
+                    )
+                    tasks.append(task)
+            except json.JSONDecodeError:
+                # Create default tasks
+                tasks = [
+                    Task(
+                        id="task-1",
+                        description="Create HTML structure",
+                        assigned_to="FrontendAgent",
+                    ),
+                    Task(
+                        id="task-2",
+                        description="Create CSS styles",
+                        assigned_to="FrontendAgent",
+                        dependencies=["task-1"],
+                    ),
+                    Task(
+                        id="task-3",
+                        description="Add JavaScript functionality",
+                        assigned_to="FrontendAgent",
+                        dependencies=["task-1"],
+                    ),
+                    Task(
+                        id="task-4",
+                        description="Create documentation",
+                        assigned_to="Helper",
+                        dependencies=["task-1", "task-2", "task-3"],
+                    ),
+                ]
+
+        except Exception as e:
+            self.logger.error(f"Failed to create roadmap: {e}")
 
         await self._set_idle()
         return tasks
 
-    async def estimate_complexity(self, specs: Dict[str, Any]) -> Dict[str, Any]:
+    async def estimate_complexity(self, specs: dict[str, Any]) -> dict[str, Any]:
         """
         Estimate project complexity and time requirements.
 
@@ -203,9 +427,25 @@ class Planner(BaseAgent):
         Returns:
             Dict with complexity metrics.
         """
-        # TODO: Implement complexity estimation
+        # Count various elements to estimate complexity
+        num_pages = len(specs.get("pages", specs.get("ui_pages", [])))
+        num_features = len(specs.get("features", []))
+        num_tasks = len(specs.get("tasks", []))
+
+        # Calculate complexity score (simple heuristic)
+        complexity_score = num_pages * 2 + num_features + num_tasks
+        if complexity_score < 10:
+            complexity_level = "low"
+        elif complexity_score < 25:
+            complexity_level = "medium"
+        else:
+            complexity_level = "high"
+
         return {
-            "complexity_score": 0,
-            "estimated_tasks": 0,
-            "estimated_files": 0,
+            "complexity_score": complexity_score,
+            "complexity_level": complexity_level,
+            "estimated_pages": num_pages,
+            "estimated_features": num_features,
+            "estimated_tasks": num_tasks or num_pages + num_features,
+            "estimated_files": len(specs.get("file_structure", {}).get("root", [])) + 5,
         }
