@@ -11,8 +11,12 @@ fi
 # Install dependencies
 pip install -r requirements.txt
 
-# Setup frontend
-cd frontend && npm install && cd ..
+# Setup frontend if directory exists
+if [ -d "frontend" ]; then
+    cd frontend && npm install && cd ..
+else
+    echo "Frontend directory not found, skipping npm install"
+fi
 
 echo ""
 echo "Setup complete! Next steps:"

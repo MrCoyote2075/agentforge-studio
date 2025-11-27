@@ -5,6 +5,7 @@ This module manages Gemini AI provider with load-balanced keys.
 """
 
 import logging
+import threading
 
 from backend.core.ai_clients.base_client import AIClientError, BaseAIClient
 from backend.core.ai_clients.gemini_client import GeminiClient
@@ -41,6 +42,7 @@ class ProviderManager:
         self.default_provider = default_provider or "gemini"
         self.logger = logging.getLogger("ai_client.provider_manager")
         self._current_key_index = 0
+        self._key_lock = threading.Lock()
 
         # Auto-configure from settings
         self._auto_configure()
@@ -96,15 +98,18 @@ class ProviderManager:
 
     def _get_next_gemini_key(self) -> str | None:
         """
-        Get the next Gemini key using round-robin load balancing.
+        Get the next Gemini key using thread-safe round-robin load balancing.
 
         Returns:
             str | None: The next API key or None if no keys available.
         """
         if not self._gemini_keys:
             return None
-        key = self._gemini_keys[self._current_key_index % len(self._gemini_keys)]
-        self._current_key_index = (self._current_key_index + 1) % len(self._gemini_keys)
+        with self._key_lock:
+            key = self._gemini_keys[self._current_key_index % len(self._gemini_keys)]
+            self._current_key_index = (
+                self._current_key_index + 1
+            ) % len(self._gemini_keys)
         return key
 
     def get_provider(self, name: str | None = None) -> BaseAIClient | None:
@@ -183,7 +188,6 @@ class ProviderManager:
             )
 
         # Create a new client with the load-balanced key
-        from backend.core.ai_clients.gemini_client import GeminiClient
         lb_client = GeminiClient(api_key=api_key)
 
         if not lb_client.is_available():
@@ -256,7 +260,6 @@ class ProviderManager:
             )
 
         # Create a new client with the load-balanced key
-        from backend.core.ai_clients.gemini_client import GeminiClient
         lb_client = GeminiClient(api_key=api_key)
 
         if not lb_client.is_available():
