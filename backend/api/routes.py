@@ -7,15 +7,17 @@ chat interactions, and file operations.
 
 import io
 import logging
+import mimetypes
 import zipfile
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from backend.agents.intermediator import Intermediator
+from backend.core.flow_controller import FlowController
 from backend.core.git_manager import GitManager
 from backend.core.workspace_manager import WorkspaceManager
 from backend.models.schemas import (
@@ -40,6 +42,7 @@ _chat_history: dict[str, list[ChatMessage]] = {}
 _workspace_manager: WorkspaceManager | None = None
 _git_manager: GitManager | None = None
 _intermediator: Intermediator | None = None
+_flow_controller: FlowController | None = None
 
 
 def get_workspace_manager() -> WorkspaceManager:
@@ -66,11 +69,24 @@ def get_intermediator() -> Intermediator:
     return _intermediator
 
 
+def get_flow_controller() -> FlowController:
+    """Get or create the FlowController instance."""
+    global _flow_controller
+    if _flow_controller is None:
+        _flow_controller = FlowController(
+            workspace_manager=get_workspace_manager(),
+        )
+    return _flow_controller
+
+
 # Chat endpoints
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
     """
     Send a chat message to the Intermediator agent.
+
+    When the user confirms requirements, this triggers the full
+    website generation flow through the FlowController.
 
     Args:
         request: Chat request containing the message and optional project ID.
@@ -96,13 +112,42 @@ async def chat(request: ChatRequest) -> ChatResponse:
             _chat_history[request.project_id] = []
         _chat_history[request.project_id].append(user_message)
 
-    # Get response from Intermediator agent
+    # Get response from Intermediator agent via FlowController
     try:
         intermediator = get_intermediator()
-        response_content = await intermediator.chat(
-            user_message=request.message,
-            project_id=request.project_id,
-        )
+        flow_controller = get_flow_controller()
+
+        # Process through flow controller for full flow support
+        if request.project_id:
+            result = await flow_controller.process_user_message(
+                project_id=request.project_id,
+                message=request.message,
+                intermediator=intermediator,
+            )
+
+            # Handle structured response
+            if isinstance(result, dict):
+                response_content = result.get("response", "")
+
+                # Update project status if generation completed
+                if result.get("files_generated"):
+                    project = _projects.get(request.project_id)
+                    if project:
+                        project.status = ProjectStatus.COMPLETED
+                        project.files = result.get("files", [])
+            else:
+                response_content = result
+        else:
+            # No project ID - just chat with intermediator
+            chat_result = await intermediator.chat(
+                user_message=request.message,
+                project_id=request.project_id,
+            )
+            if isinstance(chat_result, dict):
+                response_content = chat_result.get("response", "")
+            else:
+                response_content = chat_result
+
     except Exception as e:
         logger.error(f"Chat processing error: {e}")
         response_content = (
@@ -413,3 +458,110 @@ async def get_git_log(
     git_manager = get_git_manager()
     log = await git_manager.get_log(project_id, limit)
     return log
+
+
+# Preview endpoint
+@router.get("/preview/{project_id}")
+@router.get("/preview/{project_id}/{file_path:path}")
+async def serve_preview(
+    project_id: str,
+    file_path: str = "index.html",
+) -> Response:
+    """
+    Serve generated files for iframe preview.
+
+    Args:
+        project_id: The project identifier.
+        file_path: Path to the file to serve.
+
+    Returns:
+        Response: File content with appropriate content type.
+
+    Raises:
+        HTTPException: If the file doesn't exist.
+    """
+    workspace_manager = get_workspace_manager()
+
+    # Security: prevent directory traversal
+    if ".." in file_path:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    # Check if project exists
+    if not await workspace_manager.project_exists(project_id):
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Default to index.html if no path specified
+    if not file_path or file_path == "/":
+        file_path = "index.html"
+
+    try:
+        content = await workspace_manager.read_file(project_id, file_path)
+
+        # Determine content type
+        content_type, _ = mimetypes.guess_type(file_path)
+        if content_type is None:
+            content_type = "text/plain"
+
+        # Inject auto-refresh script for HTML files
+        if content_type == "text/html":
+            refresh_script = """
+<script>
+// Auto-refresh when files change
+(function() {
+    let lastCheck = Date.now();
+    setInterval(async () => {
+        try {
+            const response = await fetch('/__refresh_check?t=' + lastCheck);
+            const data = await response.json();
+            if (data.refresh) {
+                location.reload();
+            }
+            lastCheck = Date.now();
+        } catch (e) {}
+    }, 2000);
+})();
+</script>
+"""
+            if "</body>" in content:
+                content = content.replace("</body>", refresh_script + "</body>")
+            else:
+                content = content + refresh_script
+
+        return Response(
+            content=content,
+            media_type=content_type,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Cache-Control": "no-cache",
+            },
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File not found")
+
+
+@router.get("/projects/{project_id}/stage")
+async def get_project_stage(project_id: str) -> dict[str, Any]:
+    """
+    Get the current generation stage for a project.
+
+    Args:
+        project_id: The project identifier.
+
+    Returns:
+        Dict with stage information.
+    """
+    if project_id not in _projects:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    flow_controller = get_flow_controller()
+    stage = flow_controller.get_stage(project_id)
+    files = flow_controller.get_generated_files(project_id)
+
+    return {
+        "project_id": project_id,
+        "stage": stage.value,
+        "files_generated": len(files) > 0,
+        "files": [f.get("path", "") for f in files],
+        "preview_ready": stage.value == "complete",
+    }

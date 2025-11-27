@@ -165,7 +165,9 @@ class Intermediator(BaseAgent):
             f"From: {message.from_agent}, Type: {message.message_type}",
         )
 
-    async def chat(self, user_message: str, project_id: str | None = None) -> str:
+    async def chat(
+        self, user_message: str, project_id: str | None = None
+    ) -> str | dict[str, Any]:
         """
         Handle a chat message from the user.
 
@@ -178,7 +180,8 @@ class Intermediator(BaseAgent):
             project_id: Optional project ID to associate with the message.
 
         Returns:
-            str: The response to show the user.
+            str | dict: The response to show the user, or a dict with
+                response and requirements_complete flag when user confirms.
         """
         await self._set_busy("Processing user chat")
 
@@ -194,6 +197,31 @@ class Intermediator(BaseAgent):
             self._current_project_id = project_id
 
         try:
+            # Check if this is a confirmation message after requirements gathering
+            is_confirm = self._is_confirmation(user_message)
+            if is_confirm and len(self._conversation_history) >= 4:
+                # Extract requirements and return structured response
+                requirements = await self._extract_requirements()
+                response = (
+                    "Great! I have all the information I need. "
+                    "Let me start planning your website..."
+                )
+
+                # Store assistant response
+                assistant_message = ChatMessage(
+                    content=response,
+                    project_id=project_id,
+                    role="assistant",
+                )
+                self._conversation_history.append(assistant_message)
+
+                await self._set_idle()
+                return {
+                    "response": response,
+                    "requirements_complete": True,
+                    "requirements": requirements,
+                }
+
             # Build context from conversation history
             context = self._build_conversation_context()
 
@@ -248,6 +276,125 @@ Keep responses friendly, helpful, and concise."""
 
         await self._set_idle()
         return response
+
+    def _is_confirmation(self, message: str) -> bool:
+        """
+        Check if the message is a confirmation to proceed.
+
+        Args:
+            message: The user's message.
+
+        Returns:
+            bool: True if the message is a confirmation.
+        """
+        confirmation_phrases = [
+            "yes",
+            "yep",
+            "yeah",
+            "sure",
+            "ok",
+            "okay",
+            "go ahead",
+            "proceed",
+            "let's do it",
+            "lets do it",
+            "sounds good",
+            "perfect",
+            "great",
+            "looks good",
+            "that's right",
+            "thats right",
+            "correct",
+            "confirmed",
+            "confirm",
+            "start",
+            "begin",
+            "build it",
+            "create it",
+            "make it",
+            "generate",
+        ]
+        message_lower = message.lower().strip()
+        return any(phrase in message_lower for phrase in confirmation_phrases)
+
+    async def _extract_requirements(self) -> dict[str, Any]:
+        """
+        Extract requirements from conversation history.
+
+        Returns:
+            dict: Extracted requirements.
+        """
+        # Build conversation text
+        conversation_text = "\n".join(
+            f"{msg.role}: {msg.content}" for msg in self._conversation_history
+        )
+
+        try:
+            return await self.translate_requirements(conversation_text)
+        except Exception as e:
+            self.logger.error(f"Failed to extract requirements: {e}")
+            # Return basic requirements from conversation analysis
+            return self._analyze_conversation_for_requirements()
+
+    def _analyze_conversation_for_requirements(self) -> dict[str, Any]:
+        """
+        Analyze conversation history to extract basic requirements.
+
+        Returns:
+            dict: Basic requirements extracted from conversation.
+        """
+        all_text = " ".join(msg.content for msg in self._conversation_history)
+        all_text_lower = all_text.lower()
+
+        # Detect website type
+        website_type = "website"
+        website_types = {
+            "portfolio": ["portfolio", "personal site", "cv", "resume"],
+            "landing": ["landing page", "landing", "homepage"],
+            "business": ["business", "company", "corporate"],
+            "blog": ["blog", "news", "articles"],
+            "ecommerce": ["shop", "store", "ecommerce", "e-commerce", "products"],
+        }
+        for wtype, keywords in website_types.items():
+            if any(kw in all_text_lower for kw in keywords):
+                website_type = wtype
+                break
+
+        # Detect pages
+        pages = ["Home"]
+        page_keywords = {
+            "About": ["about", "about us", "about me"],
+            "Contact": ["contact", "contact us", "get in touch"],
+            "Services": ["services", "what we do"],
+            "Projects": ["projects", "portfolio", "work"],
+            "Blog": ["blog", "news", "articles"],
+        }
+        for page, keywords in page_keywords.items():
+            if any(kw in all_text_lower for kw in keywords):
+                if page not in pages:
+                    pages.append(page)
+
+        # Detect features
+        features = []
+        feature_keywords = {
+            "contact form": ["contact form", "form", "email form"],
+            "responsive design": ["responsive", "mobile", "mobile-friendly"],
+            "navigation": ["navigation", "menu", "nav bar"],
+            "gallery": ["gallery", "images", "photos", "pictures"],
+            "social links": ["social", "twitter", "facebook", "instagram"],
+        }
+        for feature, keywords in feature_keywords.items():
+            if any(kw in all_text_lower for kw in keywords):
+                features.append(feature)
+
+        return {
+            "website_type": website_type,
+            "pages": pages,
+            "features": features,
+            "design_preferences": {},
+            "content_notes": "",
+            "raw_conversation": all_text[:500],
+        }
 
     async def get_progress_update(self) -> str:
         """
