@@ -48,7 +48,8 @@ class BaseAgent(ABC):
 
     Attributes:
         name: The unique name identifier for this agent.
-        model: The AI model used by this agent (e.g., 'gemini-pro', 'gpt-4').
+        model: The AI model used by this agent (default: 'gemini-1.5-pro').
+        provider: The AI provider (always 'gemini').
         status: The current operational status of the agent.
         message_bus: Reference to the message bus for inter-agent communication.
         logger: Logger instance for this agent.
@@ -65,7 +66,7 @@ class BaseAgent(ABC):
     def __init__(
         self,
         name: str,
-        model: str = "gemini-pro",
+        model: str = "gemini-1.5-pro",
         message_bus: Any | None = None,
     ) -> None:
         """
@@ -73,11 +74,12 @@ class BaseAgent(ABC):
 
         Args:
             name: The unique name identifier for this agent.
-            model: The AI model to use for processing. Defaults to 'gemini-pro'.
+            model: The AI model to use for processing. Defaults to 'gemini-1.5-pro'.
             message_bus: Reference to the message bus for communication.
         """
         self._name = name
         self._model = model
+        self._provider = "gemini"  # All agents use Gemini
         self._status = AgentState.IDLE
         self._message_bus = message_bus
         self._current_task: str | None = None
@@ -111,6 +113,11 @@ class BaseAgent(ABC):
     def model(self) -> str:
         """Get the agent's AI model."""
         return self._model
+
+    @property
+    def provider(self) -> str:
+        """Get the agent's AI provider."""
+        return self._provider
 
     @property
     def status(self) -> AgentState:

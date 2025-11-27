@@ -1,25 +1,22 @@
 """
 AgentForge Studio - Provider Manager.
 
-This module manages multiple AI providers with fallback support.
+This module manages Gemini AI provider with load-balanced keys.
 """
 
 import logging
 
-from backend.core.ai_clients.anthropic_client import AnthropicClient
 from backend.core.ai_clients.base_client import AIClientError, BaseAIClient
 from backend.core.ai_clients.gemini_client import GeminiClient
-from backend.core.ai_clients.openai_client import OpenAIClient
 from backend.core.config import get_settings
 
 
 class ProviderManager:
     """
-    Manages multiple AI providers with fallback support.
+    Manages Gemini AI provider with load-balanced keys.
 
-    This class handles registration and selection of AI providers,
-    automatically falling back to secondary providers if the primary
-    provider fails.
+    This class handles Gemini provider configuration with dual key
+    support for load balancing.
 
     Attributes:
         providers: Dictionary of registered providers by name.
@@ -29,7 +26,6 @@ class ProviderManager:
 
     Example:
         >>> manager = ProviderManager()
-        >>> manager.register_provider("gemini", GeminiClient())
         >>> response = await manager.generate("Hello!")
     """
 
@@ -42,25 +38,30 @@ class ProviderManager:
         """
         self.providers: dict[str, BaseAIClient] = {}
         self.priority_order: list[str] = []
-        self.default_provider = default_provider
+        self.default_provider = default_provider or "gemini"
         self.logger = logging.getLogger("ai_client.provider_manager")
+        self._current_key_index = 0
 
         # Auto-configure from settings
         self._auto_configure()
 
     def _auto_configure(self) -> None:
-        """Auto-configure providers based on available API keys."""
+        """Auto-configure Gemini provider with load-balanced keys."""
         settings = get_settings()
 
-        # Register available providers in priority order
-        if settings.gemini_api_key:
-            self.register_provider("gemini", GeminiClient())
-        if settings.openai_api_key:
-            self.register_provider("openai", OpenAIClient())
-        if settings.anthropic_api_key:
-            self.register_provider("anthropic", AnthropicClient())
+        # Get both Gemini keys
+        key1 = settings.gemini_api_key_1
+        key2 = settings.gemini_api_key_2
 
-        # Set default provider if not specified
+        # Use the first available key for initialization
+        primary_key = key1 or key2
+        if primary_key:
+            self.register_provider("gemini", GeminiClient(api_key=primary_key))
+            self._gemini_keys = [k for k in [key1, key2] if k]
+        else:
+            self._gemini_keys = []
+
+        # Set default provider
         if not self.default_provider and self.priority_order:
             self.default_provider = self.priority_order[0]
 
@@ -92,6 +93,19 @@ class ProviderManager:
                 self.priority_order.append(name)
 
         self.logger.info(f"Registered provider: {name}")
+
+    def _get_next_gemini_key(self) -> str | None:
+        """
+        Get the next Gemini key using round-robin load balancing.
+
+        Returns:
+            str | None: The next API key or None if no keys available.
+        """
+        if not self._gemini_keys:
+            return None
+        key = self._gemini_keys[self._current_key_index % len(self._gemini_keys)]
+        self._current_key_index = (self._current_key_index + 1) % len(self._gemini_keys)
+        return key
 
     def get_provider(self, name: str | None = None) -> BaseAIClient | None:
         """
@@ -129,84 +143,77 @@ class ProviderManager:
         **kwargs,
     ) -> tuple[str, str]:
         """
-        Generate text using available providers with fallback.
+        Generate text using Gemini with load-balanced keys.
 
         Args:
             prompt: The user prompt.
             system_prompt: Optional system prompt for context.
-            provider: Specific provider to use (skips fallback).
-            fallback: Whether to fall back to other providers on failure.
+            provider: Specific provider to use (only gemini supported).
+            fallback: Whether to try alternate keys on failure.
             **kwargs: Additional parameters for generation.
 
         Returns:
             Tuple of (generated text, provider name used).
 
         Raises:
-            AIClientError: If all providers fail.
+            AIClientError: If generation fails.
         """
         if not self.providers:
             raise AIClientError(
-                "No AI providers configured. Check API keys in environment.",
+                "No AI providers configured. Check Gemini API keys in environment.",
                 provider="none",
                 retryable=False,
             )
 
-        # If specific provider requested, use only that one
-        if provider:
-            client = self.providers.get(provider)
-            if not client:
-                raise AIClientError(
-                    f"Provider '{provider}' not available",
-                    provider=provider,
-                    retryable=False,
-                )
-            if not client.is_available():
-                raise AIClientError(
-                    f"Provider '{provider}' is not properly configured",
-                    provider=provider,
-                    retryable=False,
-                )
-            result = await client.generate(prompt, system_prompt, **kwargs)
-            return result, provider
-
-        # Try providers in priority order
-        errors = []
-        if fallback:
-            providers_to_try = self.priority_order
-        elif self.default_provider:
-            providers_to_try = [self.default_provider]
-        else:
+        # Get load-balanced Gemini key
+        api_key = self._get_next_gemini_key()
+        if not api_key:
             raise AIClientError(
-                "No default provider configured",
-                provider="none",
+                "No Gemini API keys configured",
+                provider="gemini",
                 retryable=False,
             )
 
-        for provider_name in providers_to_try:
-            if provider_name not in self.providers:
-                continue
+        client = self.providers.get("gemini")
+        if not client:
+            raise AIClientError(
+                "Gemini provider not available",
+                provider="gemini",
+                retryable=False,
+            )
 
-            client = self.providers[provider_name]
-            if not client.is_available():
-                continue
+        # Create a new client with the load-balanced key
+        from backend.core.ai_clients.gemini_client import GeminiClient
+        lb_client = GeminiClient(api_key=api_key)
 
-            try:
-                self.logger.debug(f"Trying provider: {provider_name}")
-                result = await client.generate(prompt, system_prompt, **kwargs)
-                return result, provider_name
-            except AIClientError as e:
-                self.logger.warning(f"Provider '{provider_name}' failed: {e}")
-                errors.append((provider_name, str(e)))
-                if not fallback:
-                    raise
+        if not lb_client.is_available():
+            raise AIClientError(
+                "Gemini provider is not properly configured",
+                provider="gemini",
+                retryable=False,
+            )
 
-        # All providers failed
-        error_details = "; ".join(f"{p}: {e}" for p, e in errors)
-        raise AIClientError(
-            f"All providers failed. Errors: {error_details}",
-            provider="all",
-            retryable=False,
-        )
+        try:
+            self.logger.debug("Using Gemini with load-balanced key")
+            result = await lb_client.generate(prompt, system_prompt, **kwargs)
+            return result, "gemini"
+        except AIClientError as e:
+            self.logger.warning(f"Gemini generation failed: {e}")
+            # Try with alternate key if available and fallback is enabled
+            if fallback and len(self._gemini_keys) > 1:
+                alt_key = self._get_next_gemini_key()
+                if alt_key and alt_key != api_key:
+                    self.logger.debug("Retrying with alternate Gemini key")
+                    alt_client = GeminiClient(api_key=alt_key)
+                    if alt_client.is_available():
+                        try:
+                            result = await alt_client.generate(
+                                prompt, system_prompt, **kwargs
+                            )
+                            return result, "gemini"
+                        except AIClientError:
+                            pass
+            raise
 
     async def generate_code(
         self,
@@ -217,84 +224,69 @@ class ProviderManager:
         **kwargs,
     ) -> tuple[str, str]:
         """
-        Generate code using available providers with fallback.
+        Generate code using Gemini with load-balanced keys.
 
         Args:
             prompt: Description of the code to generate.
             language: Programming language.
-            provider: Specific provider to use.
-            fallback: Whether to fall back to other providers on failure.
+            provider: Specific provider to use (only gemini supported).
+            fallback: Whether to try alternate keys on failure.
             **kwargs: Additional parameters for generation.
 
         Returns:
             Tuple of (generated code, provider name used).
 
         Raises:
-            AIClientError: If all providers fail.
+            AIClientError: If generation fails.
         """
         if not self.providers:
             raise AIClientError(
-                "No AI providers configured. Check API keys in environment.",
+                "No AI providers configured. Check Gemini API keys in environment.",
                 provider="none",
                 retryable=False,
             )
 
-        # If specific provider requested, use only that one
-        if provider:
-            client = self.providers.get(provider)
-            if not client:
-                raise AIClientError(
-                    f"Provider '{provider}' not available",
-                    provider=provider,
-                    retryable=False,
-                )
-            if not client.is_available():
-                raise AIClientError(
-                    f"Provider '{provider}' is not properly configured",
-                    provider=provider,
-                    retryable=False,
-                )
-            result = await client.generate_code(prompt, language, **kwargs)
-            return result, provider
-
-        # Try providers in priority order
-        errors = []
-        if fallback:
-            providers_to_try = self.priority_order
-        elif self.default_provider:
-            providers_to_try = [self.default_provider]
-        else:
+        # Get load-balanced Gemini key
+        api_key = self._get_next_gemini_key()
+        if not api_key:
             raise AIClientError(
-                "No default provider configured",
-                provider="none",
+                "No Gemini API keys configured",
+                provider="gemini",
                 retryable=False,
             )
 
-        for provider_name in providers_to_try:
-            if provider_name not in self.providers:
-                continue
+        # Create a new client with the load-balanced key
+        from backend.core.ai_clients.gemini_client import GeminiClient
+        lb_client = GeminiClient(api_key=api_key)
 
-            client = self.providers[provider_name]
-            if not client.is_available():
-                continue
+        if not lb_client.is_available():
+            raise AIClientError(
+                "Gemini provider is not properly configured",
+                provider="gemini",
+                retryable=False,
+            )
 
-            try:
-                self.logger.debug(f"Trying provider for code: {provider_name}")
-                result = await client.generate_code(prompt, language, **kwargs)
-                return result, provider_name
-            except AIClientError as e:
-                self.logger.warning(f"Provider '{provider_name}' failed: {e}")
-                errors.append((provider_name, str(e)))
-                if not fallback:
-                    raise
-
-        # All providers failed
-        error_details = "; ".join(f"{p}: {e}" for p, e in errors)
-        raise AIClientError(
-            f"All providers failed. Errors: {error_details}",
-            provider="all",
-            retryable=False,
-        )
+        try:
+            self.logger.debug("Using Gemini for code generation with load-balanced key")
+            result = await lb_client.generate_code(prompt, language, **kwargs)
+            return result, "gemini"
+        except AIClientError as e:
+            self.logger.warning(f"Gemini code generation failed: {e}")
+            # Try with alternate key if available and fallback is enabled
+            if fallback and len(self._gemini_keys) > 1:
+                alt_key = self._get_next_gemini_key()
+                if alt_key and alt_key != api_key:
+                    self.logger.debug("Retrying with alternate Gemini key")
+                    alt_client = GeminiClient(api_key=alt_key)
+                    if alt_client.is_available():
+                        try:
+                            result = await alt_client.generate_code(
+                                prompt, language, **kwargs
+                            )
+                            return result, "gemini"
+                        except AIClientError:
+                            pass
+            raise
 
     def has_available_provider(self) -> bool:
         """

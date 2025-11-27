@@ -49,7 +49,8 @@ class GeminiClient(BaseAIClient):
         )
 
         settings = get_settings()
-        self.api_key = api_key or settings.gemini_api_key
+        # Use provided key or fall back to first available key from settings
+        self.api_key = api_key or settings.gemini_api_key_1 or settings.gemini_api_key_2
         self._client = None
 
         if self.api_key:

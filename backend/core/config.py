@@ -24,9 +24,8 @@ class Settings(BaseSettings):
     configuration from environment variables with type validation.
 
     Attributes:
-        gemini_api_key: Google Gemini API key.
-        openai_api_key: OpenAI API key.
-        anthropic_api_key: Anthropic API key.
+        gemini_api_key_1: Google Gemini API key 1 (primary).
+        gemini_api_key_2: Google Gemini API key 2 (secondary).
         api_host: Host to run the API server on.
         api_port: Port to run the API server on.
         preview_port: Port for the preview server.
@@ -39,36 +38,28 @@ class Settings(BaseSettings):
         8000
     """
 
-    # AI API Keys
-    gemini_api_key: str = Field(
+    # Gemini API Keys (Load Balanced)
+    gemini_api_key_1: str = Field(
         default="",
-        description="Google Gemini API key",
+        description="Google Gemini API key 1 (primary)",
     )
-    openai_api_key: str = Field(
+    gemini_api_key_2: str = Field(
         default="",
-        description="OpenAI API key",
-    )
-    anthropic_api_key: str = Field(
-        default="",
-        description="Anthropic API key",
+        description="Google Gemini API key 2 (secondary)",
     )
 
     # AI Provider Configuration
     default_ai_provider: str = Field(
         default="gemini",
-        description="Default AI provider (gemini, openai, or anthropic)",
+        description="Default AI provider (only gemini supported)",
+    )
+    api_key_strategy: str = Field(
+        default="load_balance",
+        description="Strategy for key rotation (round-robin between keys)",
     )
     gemini_model: str = Field(
         default="gemini-1.5-pro",
         description="Gemini model to use",
-    )
-    openai_model: str = Field(
-        default="gpt-4-turbo",
-        description="OpenAI model to use",
-    )
-    anthropic_model: str = Field(
-        default="claude-3-sonnet-20240229",
-        description="Anthropic model to use",
     )
 
     # Server Configuration
@@ -148,14 +139,12 @@ class Settings(BaseSettings):
 
     def has_ai_credentials(self) -> bool:
         """
-        Check if at least one AI API key is configured.
+        Check if at least one Gemini API key is configured.
 
         Returns:
             bool: True if at least one API key is set.
         """
-        return bool(
-            self.gemini_api_key or self.openai_api_key or self.anthropic_api_key
-        )
+        return bool(self.gemini_api_key_1 or self.gemini_api_key_2)
 
     def get_available_providers(self) -> list[str]:
         """
@@ -165,12 +154,8 @@ class Settings(BaseSettings):
             List of available provider names.
         """
         providers = []
-        if self.gemini_api_key:
+        if self.gemini_api_key_1 or self.gemini_api_key_2:
             providers.append("gemini")
-        if self.openai_api_key:
-            providers.append("openai")
-        if self.anthropic_api_key:
-            providers.append("anthropic")
         return providers
 
 
