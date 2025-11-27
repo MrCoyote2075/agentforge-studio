@@ -10,12 +10,17 @@ from datetime import datetime
 from typing import Any
 
 from backend.core.agent_registry import AgentRegistry
+from backend.core.crash_recovery import CrashRecovery
+from backend.core.error_recovery import ErrorRecovery, RecoveryAction
 from backend.core.event_emitter import EventEmitter
+from backend.core.graceful_degradation import GracefulDegradation
+from backend.core.loop_detector import LoopDetector
 from backend.core.memory.memory_manager import MemoryManager
 from backend.core.message_bus import MessageBus
 from backend.core.project_manager import ProjectManager
 from backend.core.task_dispatcher import TaskDispatcher
 from backend.core.task_queue import AsyncTaskQueue
+from backend.core.timeout_manager import TimeoutError, TimeoutManager
 from backend.core.workflow_engine import WorkflowEngine
 from backend.models.project import (
     DevelopmentPlan,
@@ -48,6 +53,11 @@ class Orchestrator:
         agent_registry: Tracks agent status and capabilities.
         task_queue: Manages task queueing.
         memory_manager: Manages agent memory systems.
+        loop_detector: Detects infinite retry loops.
+        timeout_manager: Manages operation timeouts.
+        crash_recovery: Handles crash recovery.
+        error_recovery: Handles error recovery strategies.
+        graceful_degradation: Handles graceful degradation.
         logger: Logger instance.
 
     Example:
@@ -63,6 +73,10 @@ class Orchestrator:
         agent_registry: AgentRegistry | None = None,
         task_queue: AsyncTaskQueue | None = None,
         memory_manager: MemoryManager | None = None,
+        loop_detector: LoopDetector | None = None,
+        timeout_manager: TimeoutManager | None = None,
+        crash_recovery: CrashRecovery | None = None,
+        graceful_degradation: GracefulDegradation | None = None,
     ) -> None:
         """
         Initialize the Orchestrator.
@@ -73,6 +87,10 @@ class Orchestrator:
             agent_registry: Optional agent registry instance.
             task_queue: Optional task queue instance.
             memory_manager: Optional memory manager instance.
+            loop_detector: Optional loop detector instance.
+            timeout_manager: Optional timeout manager instance.
+            crash_recovery: Optional crash recovery instance.
+            graceful_degradation: Optional graceful degradation instance.
         """
         # Core components
         self.workflow_engine = WorkflowEngine()
@@ -85,6 +103,18 @@ class Orchestrator:
         self.event_emitter = event_emitter or EventEmitter()
         self.agent_registry = agent_registry or AgentRegistry()
         self.task_queue = task_queue or AsyncTaskQueue()
+
+        # Error handling components
+        self.loop_detector = loop_detector or LoopDetector()
+        self.timeout_manager = timeout_manager or TimeoutManager()
+        self.crash_recovery = crash_recovery or CrashRecovery()
+        self.graceful_degradation = (
+            graceful_degradation or GracefulDegradation()
+        )
+        self.error_recovery = ErrorRecovery(
+            self.loop_detector,
+            error_handler_agent=None,  # Set later if ErrorHandler registered
+        )
 
         # Agent references (to be set during initialization)
         self._agents: dict[str, Any] = {}
@@ -99,14 +129,37 @@ class Orchestrator:
         Initialize the orchestrator and its components.
 
         This starts the message bus, event emitter, agent registry
-        health check, and memory manager.
+        health check, memory manager, and crash recovery.
         """
         await self.message_bus.start()
         await self.event_emitter.start()
         await self.agent_registry.start_health_check()
         await self.memory_manager.initialize()
+        await self.crash_recovery.initialize()
+
+        # Check for incomplete projects to recover
+        await self._check_for_recovery()
+
         self._running = True
         self.logger.info("Orchestrator initialized")
+
+    async def _check_for_recovery(self) -> None:
+        """Check for and notify about incomplete projects from crash."""
+        incomplete = await self.crash_recovery.get_incomplete_projects()
+        if incomplete:
+            self.logger.info(
+                f"Found {len(incomplete)} incomplete project(s) from previous session"
+            )
+            for project in incomplete:
+                await self.event_emitter.emit(
+                    "recovery_available",
+                    {
+                        "project_id": project["project_id"],
+                        "stage": project["stage"],
+                        "updated_at": project["updated_at"],
+                    },
+                    source="orchestrator",
+                )
 
     async def shutdown(self) -> None:
         """
@@ -119,6 +172,7 @@ class Orchestrator:
         await self.event_emitter.stop()
         await self.agent_registry.stop_health_check()
         await self.memory_manager.close()
+        await self.crash_recovery.close()
         self.logger.info("Orchestrator shutdown")
 
     def register_agent(self, name: str, agent: Any, capabilities: list[str]) -> None:
@@ -132,6 +186,11 @@ class Orchestrator:
         """
         self._agents[name] = agent
         self.agent_registry.register(name, capabilities=capabilities)
+
+        # Set ErrorHandler agent for error recovery if available
+        if name == "ErrorHandler":
+            self.error_recovery.error_handler_agent = agent
+
         self.logger.info(f"Registered agent: {name}")
 
     async def get_agent_context(self, project_id: str, agent_name: str) -> str:
@@ -196,6 +255,16 @@ class Orchestrator:
                 project_id,
                 ProjectStage.REQUIREMENTS_GATHERING,
                 "Project started",
+            )
+
+            # Save checkpoint for crash recovery
+            await self.crash_recovery.save_checkpoint(
+                project_id,
+                ProjectStage.REQUIREMENTS_GATHERING.value,
+                {
+                    "name": project.name,
+                    "initial_message": initial_message,
+                },
             )
 
             # Emit project_created event
@@ -382,6 +451,16 @@ class Orchestrator:
             project_id, ProjectStage.DEVELOPMENT
         )
 
+        # Save checkpoint for crash recovery
+        await self.crash_recovery.save_checkpoint(
+            project_id,
+            ProjectStage.DEVELOPMENT.value,
+            {
+                "plan": plan.model_dump() if hasattr(plan, "model_dump") else {},
+                "tasks": [t.id for t in plan.tasks],
+            },
+        )
+
         # Dispatch tasks
         dispatched = self.task_dispatcher.dispatch_plan(project_id, plan)
 
@@ -407,77 +486,142 @@ class Orchestrator:
                 source="orchestrator",
             )
 
-        # Execute tasks in parallel
+        # Execute tasks with error handling
         async def task_executor(proj_id: str, task: PlanTask) -> dict[str, Any]:
-            """Execute a single task using the appropriate agent."""
+            """Execute a single task with timeout and error recovery."""
             agent_name = task.assigned_to
             agent = self._agents.get(agent_name)
 
             if not agent:
+                # Try graceful degradation
+                action = await self.graceful_degradation.on_agent_failure(
+                    agent_name, Exception(f"Agent {agent_name} not found")
+                )
                 return {
                     "error": f"Agent {agent_name} not found",
                     "task_id": task.id,
+                    "degradation_action": action,
                 }
 
-            try:
-                from backend.models.schemas import Message
+            context = {
+                "task_id": task.id,
+                "project_id": proj_id,
+                "agent_name": agent_name,
+            }
 
-                msg = Message(
-                    from_agent="Orchestrator",
-                    to_agent=agent_name,
-                    content=task.description,
-                    message_type="request",
-                    metadata={
-                        "task_id": task.id,
-                        "file_path": task.file_path,
-                    },
-                )
+            while True:
+                try:
+                    from backend.models.schemas import Message
 
-                response = await agent.process(msg)
+                    msg = Message(
+                        from_agent="Orchestrator",
+                        to_agent=agent_name,
+                        content=task.description,
+                        message_type="request",
+                        metadata={
+                            "task_id": task.id,
+                            "file_path": task.file_path,
+                        },
+                    )
 
-                # Emit file generated event if applicable
-                if task.file_path:
+                    # Run with timeout
+                    response = await self.timeout_manager.run_with_timeout(
+                        agent.process(msg),
+                        timeout_type="task",
+                        task_id=task.id,
+                    )
+
+                    # Success - reset loop detector
+                    self.error_recovery.mark_success(task.id)
+
+                    # Emit file generated event if applicable
+                    if task.file_path:
+                        await self.event_emitter.emit(
+                            "file_generated",
+                            {
+                                "project_id": proj_id,
+                                "path": task.file_path,
+                                "generated_by": agent_name,
+                            },
+                            source="orchestrator",
+                        )
+
                     await self.event_emitter.emit(
-                        "file_generated",
+                        "task_completed",
                         {
                             "project_id": proj_id,
-                            "path": task.file_path,
-                            "generated_by": agent_name,
+                            "task_id": task.id,
+                            "status": "completed",
                         },
                         source="orchestrator",
                     )
 
-                await self.event_emitter.emit(
-                    "task_completed",
-                    {
-                        "project_id": proj_id,
+                    return {
                         "task_id": task.id,
                         "status": "completed",
-                    },
-                    source="orchestrator",
-                )
+                        "response": (
+                            response.content[:MAX_RESPONSE_LENGTH]
+                            if response.content
+                            else ""
+                        ),
+                    }
 
-                return {
-                    "task_id": task.id,
-                    "status": "completed",
-                    "response": (
-                        response.content[:MAX_RESPONSE_LENGTH]
-                        if response.content
-                        else ""
-                    ),
-                }
+                except TimeoutError as e:
+                    self.logger.warning(f"Task {task.id} timed out: {e}")
+                    recovery = await self.error_recovery.handle_error(e, context)
 
-            except Exception as e:
-                self.logger.error(f"Task {task.id} failed: {e}")
-                return {
-                    "task_id": task.id,
-                    "status": "failed",
-                    "error": str(e),
-                }
+                    if recovery.action != RecoveryAction.RETRY:
+                        return {
+                            "task_id": task.id,
+                            "status": "failed",
+                            "error": f"Timeout: {e}",
+                            "recovery_action": recovery.action.value,
+                        }
+                    # Will retry
+
+                except Exception as e:
+                    self.logger.error(f"Task {task.id} failed: {e}")
+                    recovery = await self.error_recovery.handle_error(e, context)
+
+                    if recovery.action == RecoveryAction.RETRY:
+                        # Apply any delay
+                        if recovery.delay_seconds > 0:
+                            import asyncio
+                            await asyncio.sleep(recovery.delay_seconds)
+                        continue  # Retry
+                    elif recovery.action == RecoveryAction.SKIP:
+                        return {
+                            "task_id": task.id,
+                            "status": "skipped",
+                            "error": str(e),
+                            "recovery_action": "skip",
+                        }
+                    else:
+                        # Escalate or abort
+                        return {
+                            "task_id": task.id,
+                            "status": "failed",
+                            "error": str(e),
+                            "recovery_action": recovery.action.value,
+                        }
 
         # Start parallel execution
         results = await self.task_dispatcher.execute_parallel_tasks(
             project_id, task_executor
+        )
+
+        # Update checkpoint with results
+        completed_tasks = []
+        for r in results:
+            if isinstance(r, dict) and r.get("status") == "completed":
+                completed_tasks.append(r.get("task_id", "unknown"))
+
+        await self.crash_recovery.save_checkpoint(
+            project_id,
+            ProjectStage.DEVELOPMENT.value,
+            {
+                "tasks_completed": completed_tasks,
+            },
         )
 
         # Check if all tasks completed
@@ -678,6 +822,9 @@ class Orchestrator:
             project_id, ProjectStage.DELIVERED
         )
 
+        # Mark as completed in crash recovery (remove checkpoint)
+        await self.crash_recovery.mark_completed(project_id)
+
         # Emit completion events
         await self.event_emitter.emit(
             "stage_changed",
@@ -813,3 +960,54 @@ class Orchestrator:
             }
             for s in summaries
         ]
+
+    async def recover_project(self, project_id: str) -> dict[str, Any]:
+        """
+        Recover a project from a crash checkpoint.
+
+        Args:
+            project_id: The project identifier.
+
+        Returns:
+            Recovery result with project state.
+        """
+        # Restore from checkpoint
+        restored = await self.crash_recovery.restore_project(project_id)
+        if not restored:
+            return {"error": f"No checkpoint found for project {project_id}"}
+
+        # Emit recovery event
+        await self.event_emitter.emit(
+            "project_recovered",
+            {
+                "project_id": project_id,
+                "stage": restored["stage"],
+                "recovered_at": restored.get("updated_at"),
+            },
+            source="orchestrator",
+        )
+
+        self.logger.info(
+            f"Recovered project {project_id} from stage {restored['stage']}"
+        )
+
+        return {
+            "project_id": project_id,
+            "stage": restored["stage"],
+            "state": restored["state"],
+            "status": "recovered",
+        }
+
+    def get_error_handling_stats(self) -> dict[str, Any]:
+        """
+        Get statistics from all error handling components.
+
+        Returns:
+            Dictionary with error handling statistics.
+        """
+        return {
+            "loop_detector": self.loop_detector.get_stats(),
+            "timeout_manager": self.timeout_manager.get_stats(),
+            "error_recovery": self.error_recovery.get_stats(),
+            "graceful_degradation": self.graceful_degradation.get_degradation_report(),
+        }

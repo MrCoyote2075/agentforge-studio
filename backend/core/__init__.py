@@ -9,6 +9,13 @@ from backend.core import ai_clients
 from backend.core.agent_registry import AgentRegistry
 from backend.core.api_key_manager import APIKeyManager, KeyStats, RotationStrategy
 from backend.core.config import Settings, get_settings
+from backend.core.crash_recovery import CrashRecovery
+from backend.core.error_recovery import (
+    ErrorRecovery,
+    ErrorType,
+    RecoveryAction,
+    RecoveryResult,
+)
 from backend.core.event_emitter import EventEmitter
 from backend.core.file_lock_manager import (
     FileLock,
@@ -17,6 +24,13 @@ from backend.core.file_lock_manager import (
     LockAcquisitionError,
 )
 from backend.core.git_manager import GitManager
+from backend.core.graceful_degradation import (
+    DegradationAction,
+    DegradationEvent,
+    DegradationLevel,
+    GracefulDegradation,
+)
+from backend.core.loop_detector import LoopDetector
 from backend.core.memory import (
     ApplicationMemory,
     ContextBuilder,
@@ -33,6 +47,7 @@ from backend.core.task_dispatcher import (
     TaskDispatcher,
 )
 from backend.core.task_queue import AsyncTaskQueue, TaskQueue
+from backend.core.timeout_manager import TimeoutError, TimeoutManager
 from backend.core.workflow_engine import WorkflowEngine
 from backend.core.workspace_manager import WorkspaceManager
 
@@ -69,6 +84,19 @@ __all__ = [
     "APIKeyManager",
     "RotationStrategy",
     "KeyStats",
+    # Error Handling
+    "LoopDetector",
+    "TimeoutManager",
+    "TimeoutError",
+    "CrashRecovery",
+    "ErrorRecovery",
+    "ErrorType",
+    "RecoveryAction",
+    "RecoveryResult",
+    "GracefulDegradation",
+    "DegradationLevel",
+    "DegradationAction",
+    "DegradationEvent",
     # Other
     "WorkspaceManager",
     "GitManager",
