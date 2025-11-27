@@ -477,11 +477,112 @@ async def handle_chat(
     content = message.get("content", "")
     project_id = message.get("project_id")
 
-    # TODO: Forward to Intermediator agent
-    # For now, echo back
-    return {
-        "type": "chat_response",
-        "content": f"Received: {content}",
-        "project_id": project_id,
-        "timestamp": datetime.utcnow().isoformat(),
-    }
+    # Import here to avoid circular imports
+    from backend.api.routes import get_flow_controller, get_intermediator
+
+    try:
+        intermediator = get_intermediator()
+        flow_controller = get_flow_controller()
+
+        # Process message through flow controller
+        if project_id:
+            result = await flow_controller.process_user_message(
+                project_id=project_id,
+                message=content,
+                intermediator=intermediator,
+            )
+
+            if isinstance(result, dict):
+                return {
+                    "type": "chat_response",
+                    "content": result.get("response", ""),
+                    "project_id": project_id,
+                    "stage": result.get("stage", ""),
+                    "files_generated": result.get("files_generated", False),
+                    "preview_ready": result.get("preview_ready", False),
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+            else:
+                return {
+                    "type": "chat_response",
+                    "content": result,
+                    "project_id": project_id,
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+        else:
+            # No project ID - just chat
+            chat_result = await intermediator.chat(content)
+            response_content = (
+                chat_result.get("response", "") if isinstance(chat_result, dict)
+                else chat_result
+            )
+            return {
+                "type": "chat_response",
+                "content": response_content,
+                "project_id": project_id,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+
+    except Exception as e:
+        return {
+            "type": "error",
+            "message": f"Chat error: {e}",
+            "project_id": project_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+
+@ws_manager.register_handler("start_generation")
+async def handle_start_generation(
+    connection_id: str,
+    message: dict[str, Any],
+) -> dict[str, Any]:
+    """Handle manual generation start request."""
+    project_id = message.get("project_id")
+    requirements = message.get("requirements", {})
+
+    if not project_id:
+        return {"type": "error", "message": "Missing project_id"}
+
+    from backend.api.routes import get_flow_controller
+
+    try:
+        flow_controller = get_flow_controller()
+
+        # Store requirements
+        flow_controller.requirements[project_id] = requirements
+
+        # Trigger planning
+        plan = await flow_controller.trigger_planning(project_id, requirements)
+
+        if "error" in plan:
+            return {
+                "type": "error",
+                "message": plan["error"],
+                "project_id": project_id,
+            }
+
+        # Trigger development
+        files = await flow_controller.trigger_development(project_id, plan)
+
+        # Trigger review
+        await flow_controller.trigger_review(project_id, files)
+
+        # Save files
+        await flow_controller.save_files_to_workspace(project_id, files)
+
+        return {
+            "type": "generation_complete",
+            "project_id": project_id,
+            "files": [f.get("path", "") for f in files],
+            "preview_ready": True,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "type": "error",
+            "message": f"Generation error: {e}",
+            "project_id": project_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }

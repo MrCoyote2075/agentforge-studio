@@ -436,3 +436,96 @@ Return only valid JSON array."""
             "estimated_tasks": num_tasks or num_pages + num_features,
             "estimated_files": len(specs.get("file_structure", {}).get("root", [])) + 5,
         }
+
+    async def create_plan(self, requirements: dict[str, Any]) -> dict[str, Any]:
+        """
+        Create development plan from requirements.
+
+        This is a convenience method that takes structured requirements
+        and returns a structured plan suitable for the FlowController.
+
+        Args:
+            requirements: Dictionary of project requirements.
+
+        Returns:
+            Dictionary with tasks, file_structure, and estimated_time.
+        """
+        await self._set_busy("Creating development plan")
+
+        # Convert requirements dict to string for specification
+        req_str = json.dumps(requirements, default=str)
+        specs = await self.create_specification(req_str)
+
+        # Build tasks list from specs
+        tasks = []
+        file_structure = []
+
+        # Extract tasks from specs
+        if "tasks" in specs:
+            for task in specs["tasks"]:
+                tasks.append({
+                    "id": task.get("id", f"task-{len(tasks) + 1}"),
+                    "type": self._get_file_type(task.get("file_path", "")),
+                    "file": task.get("file_path", ""),
+                    "description": task.get("description", ""),
+                    "assigned_to": task.get("assigned_to", "FrontendAgent"),
+                })
+                if task.get("file_path"):
+                    file_structure.append(task.get("file_path"))
+
+        # Extract file structure
+        if "file_structure" in specs:
+            fs = specs["file_structure"]
+            if isinstance(fs, dict):
+                for directory, files in fs.items():
+                    for f in files:
+                        path = f if directory == "root" else f"{directory}/{f}"
+                        if path not in file_structure:
+                            file_structure.append(path)
+
+        # Create default tasks if none exist
+        if not tasks:
+            tasks = [
+                {
+                    "id": "1",
+                    "type": "html",
+                    "file": "index.html",
+                    "description": "Create main HTML structure",
+                    "assigned_to": "FrontendAgent",
+                },
+                {
+                    "id": "2",
+                    "type": "css",
+                    "file": "css/styles.css",
+                    "description": "Create CSS styles",
+                    "assigned_to": "FrontendAgent",
+                },
+                {
+                    "id": "3",
+                    "type": "js",
+                    "file": "js/script.js",
+                    "description": "Add JavaScript functionality",
+                    "assigned_to": "FrontendAgent",
+                },
+            ]
+            file_structure = ["index.html", "css/styles.css", "js/script.js"]
+
+        await self._set_idle()
+
+        return {
+            "tasks": tasks,
+            "file_structure": file_structure,
+            "estimated_time": "2 minutes",
+            "specs": specs,
+        }
+
+    def _get_file_type(self, file_path: str) -> str:
+        """Get file type from file path."""
+        if file_path.endswith(".html"):
+            return "html"
+        elif file_path.endswith(".css"):
+            return "css"
+        elif file_path.endswith(".js"):
+            return "js"
+        else:
+            return "other"

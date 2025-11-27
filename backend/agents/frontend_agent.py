@@ -514,3 +514,81 @@ export default {component_name};
         """Clear all generated files."""
         self._generated_files = {}
         self._component_registry = {}
+
+    async def generate_file(
+        self, task: dict[str, Any], requirements: dict[str, Any]
+    ) -> dict[str, Any]:
+        """
+        Generate a file based on task.
+
+        Args:
+            task: Task dictionary with id, type, file, description.
+            requirements: Project requirements dictionary.
+
+        Returns:
+            Dict with path, content, and type.
+        """
+        file_type = task.get("type", "")
+        file_path = task.get("file", "")
+        description = task.get("description", "")
+
+        # Merge task description with requirements for context
+        specs = dict(requirements)
+        specs["description"] = f"{specs.get('description', '')} {description}".strip()
+
+        content = ""
+        if file_type == "html":
+            content = await self.generate_html(specs)
+        elif file_type == "css":
+            content = await self.generate_css(specs)
+        elif file_type in ("js", "javascript"):
+            content = await self.generate_javascript(specs)
+        else:
+            # For other types, generate based on description
+            await self._set_busy(f"Generating {file_path}")
+            try:
+                prompt = f"""Generate the content for file: {file_path}
+
+Description: {description}
+
+Requirements: {requirements}
+
+Return only the file content, no explanations."""
+                content = await self.generate_code(prompt, language=file_type or "text")
+                content = self._clean_code_response(content, file_type or "text")
+            except Exception as e:
+                self.logger.error(f"Failed to generate {file_path}: {e}")
+                content = f"// Generated file: {file_path}\n// {description}"
+            await self._set_idle()
+
+        return {
+            "path": file_path,
+            "content": content,
+            "type": file_type,
+        }
+
+    async def generate_website(
+        self, plan: dict[str, Any], requirements: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """
+        Generate all files for the website.
+
+        Args:
+            plan: Development plan with tasks.
+            requirements: Project requirements.
+
+        Returns:
+            List of generated file dictionaries.
+        """
+        files = []
+        tasks = plan.get("tasks", [])
+
+        for task in tasks:
+            try:
+                file = await self.generate_file(task, requirements)
+                files.append(file)
+                self._generated_files[file["path"]] = file["content"]
+            except Exception as e:
+                self.logger.error(f"Failed to generate file for task {task}: {e}")
+
+        return files
